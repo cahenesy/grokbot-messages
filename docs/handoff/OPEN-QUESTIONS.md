@@ -16,7 +16,7 @@ Do not use third-party traffic, other people's numbers, or excluded implementati
 
 ## 2. Field-5 crypto known-plaintext
 
-**Unknown:** confirm that Bugle action envelope field 5 is flat `ciphertext || IV(16) || HMAC-SHA256(32)` under AES-256-CTR, with HMAC over `ciphertext||IV` (preferred hypothesis in `SPEC.md` §5). Nested encrypted-container protobuf is contradicted by live sizes but not fully disproven without decrypt.
+**Unknown:** confirm that Bugle action envelope field 5 is flat `ciphertext || IV(16) || HMAC-SHA256(32)` under AES-256-CTR, with HMAC over `ciphertext||IV` (preferred hypothesis in `SPEC.md` §5). Nested encrypted-container protobuf is contradicted by live sizes. **A-018 (OBSERVED):** the bundle's action crypto writes exactly this flat layout and passes an empty plaintext through unencrypted (SPEC §5), so this test is now a confirmation rather than an open choice. Record pass/fail only.
 
 **Test:** In your client, encrypt a **fixture** plaintext you chose (fixed conversation id, fixed temp message id, fixed short body such as `test-vector-001`). Capture the field-5 bytes your client would send (or that the official client sends for the same known body if you inject via DevTools only on your account). Verify decrypt + HMAC with the keys derived per `SPEC.md` §5. Do **not** log plaintext from real chats.
 
@@ -104,7 +104,7 @@ Do not use third-party traffic, other people's numbers, or excluded implementati
 
 ## 13. Plaintext action layouts and object schemas (Q-009, Q-010)
 
-**Unknown:** the field numbers for actions 1, 2, 9, 16, 31 and 3 beyond §7, the action-3 status enum, and the Conversation/Message schemas (ID, name, participants, timestamp units, text, sender, direction, status).
+**Narrowed by A-018 / A-019 (OBSERVED in JS, SPEC §7.1–§7.2, §8):** layouts for actions 16, 31, 1 and 2, the Conversation, Participant, Message and part fields, and the push-update cases are now read from the bundle. **Still unknown:** the action-9 destination list, the action-3 content field and status enum, the names behind the message status codes and the action-1 filter values other than 1, the meaning of the cursor int64, and whether Message f9 matches participant identity f2. All of the above still needs a live decrypt to confirm.
 
 **Test:** Once your session keys work (Gaia, §4.2), decrypt the responses to your own self-chat requests. Plant known values (fixture text, known count, known send time, one reaction) and diff. Report field numbers, types and lengths only, with no real message content.
 

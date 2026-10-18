@@ -1,6 +1,6 @@
 # Google Messages for Web Protocol: Clean-Room Behavioral Specification
 
-Version 0.5 (handoff), 2026-10-18. Clean-room behavioral specification for the implementation team. v0.3 added the spec-team answers to implementer questions Q-001–Q-011 (§0.5). v0.4 added the Google web session header construction (A-012, §3), the single-use pairing page direction (revised A-012, §4.1), and the SignInGaia structure and BotGuard findings (A-013 part 1, §4.2). v0.5 adds the page-config layout (A-003 follow-up, §2), the Google-account pairing rounds, HKDF table, rev1 ordering, destination choice and DeviceId correction (A-013 part 2, §4.2), the verification emoji (A-015, §4.2.3 and `EMOJI-TABLES.md`), corrections to the `SendMessage` destination and the inbound envelope (A-015, §6), the page-fetch `User-Agent` rule (A-003 part 3, §2), the `ReceiveMessages` response structure (A-016, §3, §6.2, §8), and the QR route-14 payload and `RevokeRelayPairing` f2 (A-017, §4.1).
+Version 0.5 (handoff), 2026-10-18. Clean-room behavioral specification for the implementation team. v0.3 added the spec-team answers to implementer questions Q-001–Q-011 (§0.5). v0.4 added the Google web session header construction (A-012, §3), the single-use pairing page direction (revised A-012, §4.1), and the SignInGaia structure and BotGuard findings (A-013 part 1, §4.2). v0.5 adds the page-config layout (A-003 follow-up, §2), the Google-account pairing rounds, HKDF table, rev1 ordering, destination choice and DeviceId correction (A-013 part 2, §4.2), the verification emoji (A-015, §4.2.3 and `EMOJI-TABLES.md`), corrections to the `SendMessage` destination and the inbound envelope (A-015, §6), the page-fetch `User-Agent` rule (A-003 part 3, §2), the `ReceiveMessages` response structure (A-016, §3, §6.2, §8), the QR route-14 payload and `RevokeRelayPairing` f2 (A-017, §4.1), the flat wire layout of encrypted payloads and binary plaintext (A-018, §5), the request/response layouts of actions 16, 31, 1 and 2 (A-018, §7.1), the Conversation, Participant, Message and part layouts (A-019, §7.2), and the push-update mapping, including the action-17 trigger (A-019, §8).
 
 ## 0. How to read this document
 
@@ -336,20 +336,20 @@ The pair page receives the **auth key** and the round-1 **f6** value [B@1112207]
 - Persistence keys include `tachyon_auth_token`, `tachyon_auth_token_expiration_time`, `tachyon_auth_token_received_at`, `tachyon_registration_id`, `fcm_token`, `fcm_sender_id`, `bugle_version`, and `bugle_flags` [B@885514].
 - Page config contains `eO0ahb` = 1209600000 ms, which is **14 days**. This matches the publicly known inactivity unpair period (INFERRED meaning). The page config also contains `b9IVuf` = 604800000 ms (7 days), `y9sSNe`/`Q50b0` = 172800000 ms (2 days), and others whose meanings are UNVERIFIED.
 
-## 5. Payload encryption between browser and phone: OBSERVED [B@848151–850900]
+## 5. Payload encryption between browser and phone: OBSERVED [B@1076193–1077112], [B@1078094] (A-018)
 
-Application payloads are wrapped in a small "encrypted container" protobuf:
+**Wire layout (A-018, OBSERVED; this corrects v0.4 and earlier).** Envelope f5 (outbound) and f8 (inbound) carry a **flat** byte string, **not** a container protobuf:
 
-| Field | Meaning |
-|---|---|
-| 1 | Scheme: `2` = AES-CTR + HMAC-SHA256 (default); `1` = AES-128-GCM |
-| 2 | IV/nonce |
-| 3 | Ciphertext |
-| 4 | HMAC tag (scheme 2 only) |
+`ciphertext ‖ IV (16 bytes) ‖ HMAC-SHA256 tag (32 bytes)`
 
-- **Scheme 2 (the default when encrypting).** The client generates a random 16-byte counter block. It encrypts the payload with AES-CTR using the 32-byte AES key (AES-256). It then computes HMAC-SHA256 with the HMAC key over **ciphertext ‖ IV**, in that order, and keeps the full 32-byte tag. Decryption checks that the IV is 16 bytes and compares the tag in constant time before it decrypts [B@848979].
-- **Scheme 1.** This is AES-GCM with a 12-byte random nonce and a 128-bit tag, keyed with the **first 16 bytes** of the AES key (JWK `alg:"A128GCM"`). The client accepts scheme 1 on input when WebCrypto is available [B@848398].
-- Live capture note (VERIFIED-LIVE / CONTRADICTED): action-envelope field 5 on the wire was an opaque blob (lengths 51–55 bytes for small requests) that did **not** parse as the nested `{scheme, iv, ciphertext, hmac}` protobuf. That favors a flattened ciphertext layout on the wire, with the nested container existing only inside the JS crypto helper. Algorithms above remain OBSERVED in JS and are still unverified against a known-plaintext encrypt/decrypt test. Unencrypted actions (44, 45, 48) place clear protobuf in field 3 of the outbound envelope instead. Inbound, plaintext is in response-envelope field 5 and ciphertext in field 8 (§6.2).
+- **Which code.** Both crypto services that produce and consume these fields share one base class: `BugleGCryptoService` for Google-account mode (keys `g_crypto_msg_enc_key` / `g_crypto_msg_hmac`) [B@1078384], and `BugleQrCryptoService` for QR mode (`crypto_msg_enc_key` / `crypto_msg_hmac`) [B@1203957]. Their encrypt/decrypt methods use the cipher class at [B@1076193].
+- **Encrypt** [B@1076258]: IV = 16 random bytes, used as the whole 128-bit AES-CTR counter block (`length: 128`). The AES key is a raw AES-CTR key of 16 or 32 bytes (32 in practice). ct = AES-CTR(key, IV, plaintext). tag = HMAC-SHA256(hmacKey, ct ‖ IV), the full 32 bytes. Output = ct ‖ IV ‖ tag.
+- **Decrypt** [B@1076632]: reject inputs shorter than 48 bytes. The tag is the last 32 bytes; verify it in constant time over everything before it. The IV is the 16 bytes before the tag, and the ciphertext is the rest.
+- **Empty plaintext is passed through unencrypted** [B@1078094]. Both directions return a zero-length input unchanged, so actions whose request message is empty (31 and 17) send an **empty f5**. This is consistent with the capture notes, which record f5 for actions 1, 16, 37 and 52 but not for 31 (INFERRED).
+- **Size check.** The overhead is 48 bytes, so the live 51–55-byte f5 values are 3–7-byte plaintexts. Action 16's 7-byte plaintext (§7.1) gives 55 (INFERRED match). The earlier CONTRADICTED note (f5 did not parse as a container) is explained by this layout.
+- **Plaintext encoding: binary protobuf** (A-018, OBSERVED). Requests are serialized by the `_.ue` / `_.te` serializers [B@39701], which run the binary writer [B@290984]. Responses are parsed by the binary reader `_.se` [B@39414]. It is proto3-style: default values (0, "", false) are not written.
+- The `{f1 scheme, f2 IV, f3 ciphertext, f4 HMAC}` container class at [B@848151–850900] (scheme 2 = AES-CTR + HMAC over ct ‖ IV; scheme 1 = AES-128-GCM with a 12-byte nonce, keyed with the first 16 bytes of the AES key) is a **different helper**. It is not what goes on the wire for actions.
+- The algorithms are OBSERVED in JS and still need the known-plaintext round trip in OPEN-QUESTIONS §2. Unencrypted actions (44, 45, 48) place clear protobuf in field 3 of the outbound envelope instead. Inbound, plaintext is in response-envelope field 5 and ciphertext in field 8 (§6.2).
 
 ## 6. Request and response envelope
 
@@ -364,7 +364,7 @@ Each phone-bound action is built in three layers.
 | 1 | Request ID (a UUID string; the client reuses it to match the response) |
 | 2 | Action type (an integer from §7) |
 | 3 | Unencrypted payload bytes (used only for actions sent "unencrypted"; see §7). Otherwise it is set to an empty string. |
-| 5 | Opaque / encrypted action-request bytes (VERIFIED-LIVE present for actions 1, 16, 37, 52). Wire shape is an opaque blob, not the nested container protobuf — see §5. |
+| 5 | Encrypted action-request bytes, flat ct ‖ IV ‖ HMAC (§5, A-018). VERIFIED-LIVE present for actions 1, 16, 37, 52. Empty when the request message is empty (actions 31, 17). |
 | 6 | Session ID, bytes len=36 (uuid). VERIFIED-LIVE present once the browser session is active. |
 
 **(b) Relay `SendMessage` request (VERIFIED-LIVE).** JSPB fields:
@@ -416,8 +416,8 @@ Action numbers are OBSERVED as the `Gc:` value passed to the client's action dis
 
 | Action | Class | Inferred purpose (evidence) |
 |---|---|---|
-| 1 | READ | **List conversations.** The request carries a count, a folder/status filter, and an optional cursor; the response field 2 is a repeated conversation list and field 5 is a continuation cursor [B@~1050800, `tN`]. |
-| 2 | READ | **List messages in a conversation.** The request carries the conversation ID, a cursor, and a count; the response field 2 is a repeated message list and field 5 is a cursor. It throws "Conversation not found" when the list is empty. **VERIFIED-LIVE** (1× right after action 9 when opening the new thread). |
+| 1 | READ | **List conversations.** Layout in §7.1 (A-018) [B@1058593]. Response f2 = repeated Conversation (§7.2), f5 = cursor. |
+| 2 | READ | **List messages in a conversation.** Layout in §7.1 (A-018) [B@1059477]. Response f2 = repeated Message (§7.2), f5 = cursor. It throws "Conversation not found" when the list is empty. **VERIFIED-LIVE** (1× right after action 9 when opening the new thread). |
 | 3 | WRITE | **Send message.** JS: request has field 2 = conversation ID, field 5 = a client temporary message ID, optional field 4 = SIM/sender, optional boolean field 6, and the message content; response field 2 = message ID and field 3 = status [B@1063354]. **VERIFIED-LIVE:** exactly one action-3 in the send capture; action envelope f1=reqId(36), f2=3, f5=opaque 295 B (42-char plaintext), f6=sessionId(36); outer Message.f1 = client message uuid; Message type 19. Inner plaintext field layout of f5 remains opaque (encrypted). |
 | 6 | READ | **List or search contacts** (limit, query, paging). Response field 2 = contacts, field 3 = cursor. |
 | 9 | WRITE | **Get or create a conversation** from a list of destinations (E.164 / address identities); it optionally creates an RCS group and accepts a group name in field 3 (`createConversation`). **VERIFIED-LIVE** as the get-or-create step after LookupRegistered (1× in send capture; f5 opaque len=86). |
@@ -425,8 +425,8 @@ Action numbers are OBSERVED as the `Gc:` value passed to the client's action dis
 | 12 | READ | Per-conversation boolean setting (field 3) with an optional SIM payload. Possibly **notifications/mute** (UNVERIFIED). |
 | 13 | WRITE | **Update settings.** It carries many boolean and enum preference fields and returns the settings blocks. |
 | 15 | WRITE | **Update conversation status.** Field 3 = conversation ID and field 2 = a status code. The unarchive path uses 3, and an archive/delete-style pair uses 5/6 (UNVERIFIED which is which). |
-| 16 | READ | **Activate session / get updates.** It is sent with request ID = the new session ID and carries a timestamp. It is issued together with action 31 when the browser becomes active [B@1053783]. |
-| 17 | ACK | **Acknowledge.** It sends an empty request, after the client processes message updates [B@1053193]. |
+| 16 | READ | **Activate session.** Request f2 = int64 ms timestamp (§7.1). Request ID = the new session ID; sent together with action 31 when the browser becomes active [B@1053783]. No direct response is parsed. Push updates arrive as inbound action-16 envelopes (§8, A-019). |
+| 17 | ACK | **Acknowledge.** An empty request (so f5 is empty, §5), sent when a push update carries oneof case f7, the ack request (§8, A-019) [B@1072507], [B@1053121]. |
 | 19 | WRITE | Takes the conversation ID (field 2) and optional SIM (field 3); returns success in field 2. Possibly **delete conversation** (UNVERIFIED). |
 | 20 | WRITE | Per-destination write with field 2 = conversation, field 4 = destination, field 6 = boolean, field 5 = SIM. Possibly **block/report** (UNVERIFIED). |
 | 21 | READ | **Get conversation type or metadata** by conversation ID. |
@@ -437,7 +437,7 @@ Action numbers are OBSERVED as the `Gc:` value passed to the client's action dis
 | 27 | READ | Takes a message ID. Possibly **resend / download message** (UNVERIFIED). |
 | 28 | READ | **Top contacts** (limit). |
 | 29 | READ | **Participant thumbnails** (repeated ID→image). |
-| 31 | READ | **Get capabilities** (a boolean that gates send, create-conversation, and group features). |
+| 31 | READ | **Get capabilities.** Empty request; response f1 = bool that gates send (3), create-conversation (9) and action 23 (§7.1, A-018). |
 | 32 | READ | Returns a "market config" block. |
 | 33 | READ | Returns a single value (purpose UNVERIFIED). |
 | 36 | READ | Takes a message ID and a part ID. Likely **fetch full-resolution media part** (UNVERIFIED). |
@@ -452,13 +452,88 @@ Action numbers are OBSERVED as the `Gc:` value passed to the client's action dis
 | 52, 53, 56 | READ | Contact list variants: 52 is filtered, 53 is a full list, and 56 is cursor-paged. |
 | 54 | WRITE | Requires a feature flag; takes a conversation and content. Likely **edit message** (UNVERIFIED). |
 
-**Plaintext layouts (Q-009, Q-010).** Only the fields listed above are known, and they are OBSERVED in JS, not verified on the wire, because f5 is encrypted. The plaintext inside f5 is INFERRED to be binary protobuf (unencrypted actions carry clear protobuf in envelope f3). Not recorded, and so UNVERIFIED:
-- the request field numbers for action 1 (count, folder filter and its enum values, cursor), action 2 (conversation ID, cursor, count), and action 9 (destination list);
-- the timestamp field and units for action 16, and the capability field for action 31;
-- the message-content field and the response status enum values for action 3;
-- any Conversation or Message object schema.
+**Still unrecorded (UNVERIFIED):** the destination-list layout of action 9, and the message-content field and response status enum of action 3. Everything in §7.1 and §7.2 is OBSERVED in JS and not yet checked against a live decrypt; field numbers come from the client's message schemas and meanings from what its converters do with each field.
 
-Action 17's request is empty (OBSERVED JS; not seen live).
+### 7.1 Read-only action layouts (A-018, OBSERVED)
+
+Plaintext is binary protobuf (§5). Proto3-style: fields left at their default are not written.
+
+**Action 16 (activate session)** [B@1053783]: request f2 = int64 timestamp in **milliseconds**, `Date.now()` plus the client's server-clock offset [B@1042865], [B@1042305]. No other fields. Request ID = the new session ID. Sent together with action 31 [B@1053705]. The call has no response type.
+
+**Action 31 (capabilities)** [B@1061905]: the request is an empty message [B@377954], so f5 is empty. Response f1 = bool [B@378030], copied into three capability flags. When false, send (action 3) re-checks once and then fails with result 4 [B@1062944]; create-conversation (9) and action 23 are gated the same way.
+
+**Action 1 (list conversations)** [B@1058593], request schema [B@379448]:
+
+| Field | Type | Value |
+|---|---|---|
+| f2 | int32 | count, always **25** [B@379247] |
+| f3 | string | not set by the client |
+| f4 | enum | folder/status filter; the client maps 1:1 onto {1, 2, 3, 5, 6}, plus 8 behind a flag [B@1039672]. The startup inbox load uses **1** [P@471276]. Other meanings UNVERIFIED. |
+| f5 | message | cursor {f1 string (a conversation ID), f2 int64 (INFERRED a timestamp)} [B@379210]. Omit on the first page; afterwards send back the previous response's f5 unchanged. |
+
+Response [B@379558]: f2 = repeated Conversation (§7.2), f3 string and f4 int32 (unread by the list code), f5 = cursor. `SendMessage` f23 qN = 16 on the session's first action 1 and unset afterwards [B@1058737] (matches the live "16 with action 1").
+
+**Action 2 (list messages)** [B@1059477], request schema [B@380162]:
+
+| Field | Type | Value |
+|---|---|---|
+| f2 | string | conversation ID |
+| f3 | int32 | count, always **50** [B@379980] |
+| f4 | string | not set by the client |
+| f5 | message | cursor {f1 string, f2 int64} [B@379910]; send back the previous response's f5 |
+| f6 | message | conversation reference {f1 conversation ID, f2 RCS group {f1 group ID}, f3 string} [B@366563], [B@214419], [B@366033]. For a normal thread, f6.f1 = the same conversation ID. |
+
+Response [B@380356]: f2 = repeated Message (§7.2), f3 string, f4 int32, f5 = cursor. An empty f2 on the first page means "Conversation not found".
+
+### 7.2 Conversation, Participant, Message and part layouts (A-019, OBSERVED)
+
+Participant names, addresses and message text are personal data: never log them; log field numbers and lengths only.
+
+**Conversation** (action 1 response f2; push case f2). Schema [B@366591], class [B@366302], converter [B@1036507].
+
+| Field | Type | What the client does with it |
+|---|---|---|
+| 1 | string | conversation ID |
+| 2 | string | display name |
+| 4 | message | latest-message preview {f1 text, f2 bool (INFERRED the same "outgoing" flag as on Message), f3 enum type, f4 string, f5 status (same type as Message f4)} |
+| 5 | int64 | last-activity time, **µs** (the client divides by 1000) |
+| 6 | int32 | treated as a flag when > 0 (INFERRED unread count) |
+| 10 | bool | INFERRED group flag (the client builds a label from up to four non-self participants when it's set and no label exists) |
+| 12 | enum | status, same value set as the action-1 filter [B@1036348] |
+| 20 | repeated message | participants |
+| 22 | enum | type, values 1 and 2 (meaning UNVERIFIED) |
+| 28 | int64 | µs timestamp (meaning UNVERIFIED) |
+| 31 | message | conversation reference (as action 2 f6) |
+| 34 | string | custom icon URL |
+
+Fields 7, 9, 11, 13–19, 21, 23–27, 29, 30, 32, 33 and 35–42 also exist and aren't needed for read-only.
+
+**Participant** (Conversation f20) [B@365516]: f1 identity {f1 enum type, f2 string, f3 string} [B@365270], [B@365164] — the client uses identity f2 as both the participant ID and the displayed destination (INFERRED the address); f2 first name; f3 full name; f6 bool is-self; f7 SIM (required by the converter); f15 display name; f21 profile {f1 display name, f2 first name, f3 …}. Fields 4, 5, 8–14 and 16–20 are UNVERIFIED.
+
+**Message** (action 2 response f2; push case f3). Schema [B@374313], class [B@374070], converter [B@1026525].
+
+| Field | Type | What the client does with it |
+|---|---|---|
+| 1 | string | message ID |
+| 4 | message | status: **f2** = status code (enum), f5 = status text, f6 = bool [B@364182], [B@364256] |
+| 5 | int64 | timestamp, **µs** |
+| 7 | string | conversation ID |
+| 9 | string | INFERRED sender participant ID |
+| 10 | repeated message | parts, in order |
+| 11 | enum | message type, values 1–6 (UNVERIFIED meanings) |
+| 12 | string | INFERRED client temporary ID (the send path writes the same model property into action 3 f5) [B@1027542], [B@1063227] |
+| 13 | message | INFERRED reply quote {f1 string, f2 int64 µs, f3–f6 strings} |
+| 16 | bool | special message (below) |
+| 19 | repeated message | reactions {f1 {f1 emoji string, f2 type enum}, f2 repeated participant IDs} [B@372571] |
+| 23 | message | conversation reference |
+| 29 | string | RCS group ID |
+
+- **Direction:** outgoing when the status code is 1–99 [B@1027337] (rule OBSERVED, meaning INFERRED); 100 and above is incoming.
+- **Status grouping** [B@1025782] (category names are not in the bundle): {3, 4, 5, 6, 7, 10} → 1; {1, 15} → 2; {2} → 3; {11} → 4; {8, 9, 12, 13, 19, 21, 22, 24, 27, 114} → 5 (INFERRED failed, the only category with a failure reason [B@1026337]); {14} → 7; {300} → 8; {102–105} → 9; {101, 106, 110, 115} → 10; {107, 111, 112} → 11. Expose the raw code plus direction until a live test confirms names.
+- **Special messages:** f16 = true, or a status code of 200–211 or 217, takes a short path with no parts rendered (INFERRED system/tombstone event).
+- **Unread** is not a Message field (see Conversation f6).
+
+**Message part** (Message f10): f1 part ID, then a **oneof over 2–6** [B@372180]: f2 text {**f1 = text**} [B@1028637]; f3 media {f1 content-type enum: 1–6 images (jpeg, jpg, png, gif, wbmp, bmp), 8–13 video, 14–23 audio, 24 vCard, 38–43 calendar, other = attachment} [B@1027967], [B@1030450]; f5 location {f2 text}; f6 rich card {f1 JSON string, f2 type} (behind a flag). For read-only text, take f2.f1 of each text part in order.
 
 Text send (action 3) and get-or-create conversation (action 9) are VERIFIED-LIVE. Media sending, mark-read, typing, and delete-message are not yet mapped with confidence. See open questions. A parallel RCS-plane SendMessage with message type 36 on jms-us follows Bugle action 3 (text) and action 38 (reaction); role still UNVERIFIED but recurrence is VERIFIED-LIVE. Media send uses action 3 after Copper+Bugle uploads (§9).
 
@@ -466,8 +541,17 @@ Text send (action 3) and get-or-create conversation (action 9) are VERIFIED-LIVE
 
 - The browser keeps one `ReceiveMessages` stream open at a time. Inbound relay messages carry a route or type number in f2. **14** is the QR pairing event and **19** carries a phone response envelope (OBSERVED). Heartbeats are not relay messages: they are the `ReceiveMessages` response f3 marker (§6.2, A-016, INFERRED meaning). Other route numbers are UNVERIFIED.
 - When the browser becomes the active client, it picks a new session ID (a UUID), stores it, sends action 16 with that ID as the request ID, and requests capabilities with action 31 [B@1053783]. If a previous session ID exists, the client may resume it. Each of 16 and 31 was seen once in the live pairing capture. Whether other actions go unanswered without 16 → 31 is UNVERIFIED, so send them first (Q-011).
-- Data updates pushed by the phone, such as new or updated conversations and messages, arrive as encrypted payloads on the stream. Client identifiers `CONVERSATION_UPDATE`, `MESSAGE_UPDATE`, `NEW_RCS_MESSAGE_EVENTS`, and `RCS_MESSAGE_STATUS_UPDATE_EVENTS` exist (OBSERVED names), but their wire mapping is UNVERIFIED.
-- The client acknowledges processed relay messages with `Messaging/AckMessages` (VERIFIED-LIVE): request = `[AuthMessage, repeated messageId uuid strings]` (1–6 IDs per call observed); response = `[[null, digits]]`. Action 17 (application-level ack) was not observed in live captures and remains OBSERVED-from-JS only [B@1053193].
+- **Push updates (A-019, OBSERVED [B@1068983–1073227]).** They arrive as inbound relay messages (f2 = 19) whose response envelope has **action (f4) = 16** and **request ID (f1) = the current session ID**. Envelopes for any other action are responses to pending requests, matched by request ID [B@1069227]. A 16 envelope with an unknown ID is ignored unless it is the "browser active" alert. After decrypting f8, the plaintext is one message with a **oneof over fields 2–16** [B@377357], [B@376884]:
+  - **f2 conversation update** = {f2 repeated Conversation (§7.2), f3 string} [B@367085], [B@1070591]
+  - **f3 message update** = {f2 repeated Message (§7.2), f3 string} [B@376057], [B@1070524]
+  - f4 typing = {f2 repeated {f1 conversation ID, f2 identity, f3 bool typing, f4 conversation reference}} [B@376753], [B@376672], [B@1072530]
+  - f5 settings; f6 user alert {f2 type: 1 preempted, 2 browser active, 7 inactive (timeout), 8 inactive (lack of activity), 3/4 data connection, 5/6 battery} [B@1071536]
+  - **f7 ack request → the client sends action 17** [B@1072507], [B@1053121]
+  - f14 Google-account unpair [B@1072716]; f15 QR migration {f1 string (may be an account email: never log it), f2 bool} [B@375875]; other cases aren't needed for read-only.
+  - **Stale updates:** the client drops an update for a conversation or message ID whose envelope f3 timestamp is older than the last applied for that ID (`conv_<id>`, `msg_<id>`, 1000-entry cache) [B@1073227], [B@1052663], [B@1054875].
+  - **Placeholders:** a message update is rendered only if its status is 300, or it is type 3 with a status other than 105, or every part has a content case [B@1052849]; otherwise it waits for a later update (INFERRED).
+  - The names `CONVERSATION_UPDATE` / `MESSAGE_UPDATE` don't appear on the wire; these oneof cases are the mapping.
+- The client acknowledges processed relay messages with `Messaging/AckMessages` (VERIFIED-LIVE): request = `[AuthMessage, repeated messageId uuid strings]` (1–6 IDs per call observed); response = `[[null, digits]]`. Action 17 (application-level ack) is sent in reply to push case f7 (above); it was not observed in live captures.
 - Page config contains `M4QZzf` = 10000 ms. A 10-second interval matches a heartbeat or ping cadence (INFERRED). Action 48 (unencrypted, empty, to explicit targets; seen twice live in the pairing capture) is possibly a ping (UNVERIFIED). How long the server keeps a stream open is UNVERIFIED (Q-011).
 - The inactivity and unfocused-tab states are named `BROWSER_ACTIVE`, `BROWSER_INACTIVE_FROM_TIMEOUT`, and `INACTIVE_LACK_OF_ACTIVITY` (OBSERVED).
 

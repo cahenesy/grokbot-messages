@@ -446,3 +446,31 @@ _Protocol facts only, from the spec team's handoff, Google's public web client b
 - **Q-011 bonus:** `RevokeRelayPairing` f2 is the full browser identity message, sent with `fg` 3, and skipped when none is stored [B@1083891].
 - **Still open:** the QR-mode `SendMessage` destination (Q-008), f4.4's meaning, a live QR pairing (needs the owner's phone; OPEN-QUESTIONS §18), and the BotGuard f39 presence check.
 - **Docs:** SPEC v0.5 §4.1 steps 4 and 6 and §8 were updated on PR #18's branch.
+
+### Implementer ack and new items — 2026-10-18 ~12:06 EDT (seen on the 12:30 run)
+
+- #15: A-017 applied in ff3ec43 (95 tests), plus 013911b (superseded pairing attempts are revoked and can't save or change status). The implementer says the QR flow is code-complete apart from the live run, which waits on the owner's US check (#16).
+- #9 / #10: they asked the spec team to read the bundle for the read-only set (actions 16, 31, 1, 2; the f5/f8 wire layout; plaintext encoding; Conversation/Message layouts; push-update mapping), so Phase 2 doesn't wait for a live decrypt.
+
+### Review of ff3ec43 / 013911b — 2026-10-18 (routine run, ~12:40 EDT; comment https://github.com/cahenesy/grokbot-messages/issues/15#issuecomment-6252402946)
+
+- Clean on hygiene (noreply author, no AI trailers, no secrets; diagnostics log only kind and length). A-017 notes applied correctly; revoking with the new token matches the official client.
+- One low-priority note: the stream is aborted when the link dies, so a late route 14 is never seen or revoked. Either keep the stream open for a short grace period to revoke, or rely on server-side expiry and check it on the first live run (log only whether route 14 arrived).
+
+### A-018 — 2026-10-18 (routine run, ~12:40 EDT; comment https://github.com/cahenesy/grokbot-messages/issues/9#issuecomment-6252402533)
+
+- **Wire layout (gates every encrypted action), OBSERVED:** both action crypto services (`BugleGCryptoService`, `BugleQrCryptoService`) use one cipher [B@1076193]: 16-byte random IV as the full AES-CTR counter, HMAC-SHA256 over ct ‖ IV, wire = **ct ‖ IV ‖ tag(32)**; decrypt rejects < 48 bytes. Empty plaintext passes through unencrypted, so actions 31 and 17 send an empty f5. The SPEC §5 container class is a different helper. 48-byte overhead explains the live 51–55-byte f5s.
+- **Plaintext:** binary protobuf, proto3-style ([B@39701], [B@290984], [B@39414]).
+- **16:** f2 = int64 ms (Date.now + server offset); request ID = session ID; sent with 31; no direct response parsed.
+- **31:** empty request; response f1 bool gates send (fails with result 4), create-conversation and action 23.
+- **1:** f2 count 25, f4 filter enum {1, 2, 3, 5, 6, (8)} with startup inbox = 1 [P@471276], f5 cursor {f1 string, f2 int64} echoed back; response f2 conversations, f5 cursor. qN 16 on the first action 1 matches the capture.
+- **2:** f2 conversation ID, f3 count 50, f5 cursor, f6 conversation reference {f1 conversation ID, …}; response f2 messages, f5 cursor.
+
+### A-019 — 2026-10-18 (routine run, ~12:40 EDT; comment https://github.com/cahenesy/grokbot-messages/issues/10#issuecomment-6252402757)
+
+- **Conversation** [B@366591]: f1 ID, f2 name, f4 preview, f5 µs time, f6 int (INFERRED unread), f10 INFERRED group, f12 status, f20 participants, f22 type, f31 reference, f34 icon URL.
+- **Participant:** f1 identity {f1 type, f2 ID/address (INFERRED), f3}, f2 first name, f3 full name, f6 is-self, f7 SIM, f15 display name, f21 profile.
+- **Message** [B@374313]: f1 ID, f4 status (**code in f2**), f5 µs, f7 conversation ID, f9 INFERRED sender, f10 parts, f11 type, f12 INFERRED temp ID, f19 reactions. Outgoing = code 1–99 (OBSERVED rule). Status grouping recorded; names unknown, so expose raw codes.
+- **Parts:** oneof 2–6; text = f2.f1; media f3 with a content-type enum; location f5; rich card f6.
+- **Push updates:** inbound action-16 envelopes with request ID = session ID; oneof 2–16: f2 conversations, f3 messages, f4 typing, f6 alerts, **f7 ack request → action 17**, f14 Gaia unpair, f15 QR migration. Stale-update drop by envelope f3 per entity ID; placeholder rule recorded.
+- **Docs:** SPEC v0.5 §5, §6.1, §7 (new §7.1 and §7.2) and §8, plus OPEN-QUESTIONS §2 and §13, updated on PR #18's branch.
