@@ -10,7 +10,7 @@
 
 export const SPEC_GAPS = {
   "Q-003": "X-Goog-Api-Key: neither ${GOOGLE_MESSAGES_API_KEY} nor the page-config const A16fYe (MW_CONFIG) yielded a value",
-  "Q-004": "Location of the route/type=14 field and its payload bytes within a ReceiveMessages stream element, and whether the payload is binary protobuf or JSPB",
+  "Q-004": "ReceiveMessages called without a request body (build it with encodeReceiveMessagesRequest, A-015)",
   "Q-008": "SendMessage Message.f12 envelope encoding, qN/deadline per action, and the inbound path to the response envelope and relay message id",
   "Q-009": "Plaintext request/response field layouts for actions 16, 31, 1, 2, 9, 3, 17",
   "Q-010": "Conversation and Message object schemas",

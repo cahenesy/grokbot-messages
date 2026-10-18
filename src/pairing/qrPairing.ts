@@ -18,6 +18,10 @@ export interface QrPairingDeps {
   /** Resolves with paired data from the stream, opened with the relay token (Q-004). */
   waitForPaired: (token: Uint8Array, signal: AbortSignal) => Promise<PairedData>;
   save: (s: SessionData) => Promise<void>;
+  /** Pairing/RevokeRelayPairing for a pairing that completed after its link died (A-017). */
+  revoke?: (p: PairedData) => Promise<void>;
+  /** Diagnostics by kind/length only (A-017: "route 14 seen / f4 present / f4.4 length"). */
+  onDiagnostic?: (d: { route14: true; f4Present: true; f4_4Length: number | undefined }) => void;
   userAgent: string;
   onError?: (e: unknown) => void;
   now?: () => number;
@@ -52,6 +56,12 @@ export class QrPairing {
     void this.d
       .waitForPaired(res.token.token, ac.signal)
       .then(async (p) => {
+        this.d.onDiagnostic?.({ route14: true, f4Present: true, f4_4Length: p.f4Length });
+        if (this.d.page.status() !== "waiting") {
+          // Link expired or was replaced before the phone confirmed: revoke rather than keep (A-017).
+          await this.d.revoke?.(p);
+          return;
+        }
         await this.d.save({
           version: 1,
           deviceKeyPkcs8: Buffer.from(key.pkcs8()).toString("base64"),

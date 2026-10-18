@@ -97,3 +97,13 @@ export function requireEnv(env: NodeJS.ProcessEnv, name: string): string {
   if (/\$\{[^}]*\}|\$[A-Z_][A-Z0-9_]*$/.test(v)) throw new Error(`${name} looks like an unexpanded placeholder; set it in the plugin configuration`);
   return v;
 }
+
+/**
+ * Optional variable: unset, empty, or an unexpanded `${VAR}` placeholder all count as unset, so an
+ * optional value can never be sent blank or as a literal placeholder (A-017 review note).
+ */
+export function optionalEnvValue(env: NodeJS.ProcessEnv, name: string): string | undefined {
+  const v = env[name]?.trim();
+  if (!v || /^\$\{[^}]*\}$|^\$[A-Z_][A-Z0-9_]*$/.test(v)) return undefined;
+  return v;
+}

@@ -2,7 +2,6 @@
 
 import { authHeaderPb, deviceIdentityFromPb, type DeviceIdentity, type Token } from "./auth.js";
 import { PbWriter, decode, getBytes, getMessage, getVarint, type RawField } from "./protobuf.js";
-import { SpecGapError } from "./specGaps.js";
 
 /** Browser-type enum (§4.1 step 2; exact mapping INFERRED). The connector is not a browser, so "other". */
 export const BROWSER_TYPE_OTHER = 1;
@@ -90,26 +89,61 @@ export function qrUrl(pairingKey: Uint8Array, aesKey: Uint8Array, hmacKey: Uint8
 
 export interface PairedData {
   phone: DeviceIdentity; // stored as tachyon_auth_dest_id
-  token: Token;
+  token: Token; // replaces the RegisterPhoneRelay token (A-017)
   browser: DeviceIdentity; // stored as tachyon_auth_desktop_id
+  /** f4.f4 length only (meaning UNVERIFIED; A-017 asks for its length to be logged, never its value). */
+  f4Length?: number;
 }
 
-/** Decode the route-14 container (binary protobuf assumed; see Q-004): f4 = paired data. */
+/**
+ * Route-14 payload (A-017 [B@798710]): binary protobuf, a oneof over f1–f9 where f4 = paired
+ * {f1 phone identity, f2 token {f1, f2 TTL}, f3 browser identity, f4 bytes}. Returns undefined when f4 is absent
+ * (the client then fails pairing).
+ */
 export function decodePairedContainer(b: Uint8Array): PairedData | undefined {
   const paired = getMessage(decode(b), 4);
   if (!paired) return undefined;
   const phone = getMessage(paired, 1);
   const browser = getMessage(paired, 3);
   if (!phone || !browser) throw new Error("paired data missing device identities");
-  return { phone: deviceIdentityFromPb(phone), token: tokenFromPb(getMessage(paired, 2)), browser: deviceIdentityFromPb(browser) };
+  return {
+    phone: deviceIdentityFromPb(phone),
+    token: tokenFromPb(getMessage(paired, 2)),
+    browser: deviceIdentityFromPb(browser),
+    f4Length: getBytes(paired, 4)?.length,
+  };
 }
 
+/** Relay f2 value of the QR pairing event (§4.1 step 4). */
 export const PAIRING_EVENT_ROUTE = 14;
 
+export class PairingEventError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PairingEventError";
+  }
+}
+
 /**
- * Pull the paired data out of one ReceiveMessages stream element, or undefined when the
- * element is not a route-14 pairing event. The field path is Q-004.
+ * From one relay message: undefined unless relay f2 = 14; otherwise the paired data decoded from relay f12
+ * (binary, in the clear; A-017 [B@1211140], [B@798993]). A route-14 event without f4 fails pairing.
  */
-export function pairedFromStreamElement(_response: unknown): PairedData | undefined {
-  throw new SpecGapError("Q-004");
+export function pairedFromRelay(relay: { type: number; envelope?: Uint8Array }): PairedData | undefined {
+  if (relay.type !== PAIRING_EVENT_ROUTE) return undefined;
+  if (!relay.envelope) throw new PairingEventError("pairing event without payload");
+  const p = decodePairedContainer(relay.envelope);
+  if (!p) throw new PairingEventError("pairing event without paired data (f4)");
+  return p;
+}
+
+export function encodeDeviceIdentityPb(d: DeviceIdentity): PbWriter {
+  return new PbWriter().varint(1, d.type).string(2, d.sourceId).string(3, d.network);
+}
+
+/**
+ * RevokeRelayPairing (§4.1 step 6; A-017 [B@1083891]): f2 = the full browser identity message. f1 = binary auth
+ * header {f1 request ID, f3 "Bugle", f6 token} (INFERRED from §4.3).
+ */
+export function encodeRevokeRelayPairing(browser: DeviceIdentity, token: Uint8Array, requestId?: string): Uint8Array {
+  return new PbWriter().message(1, authHeaderPb("Bugle", requestId).bytes(6, token)).message(2, encodeDeviceIdentityPb(browser)).finish();
 }

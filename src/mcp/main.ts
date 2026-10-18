@@ -5,10 +5,13 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { SpecGapError } from "../protocol/specGaps.js";
 import { expiresAtMs, refreshAtMs } from "../session/schedule.js";
-import { SessionStore, requireEnv } from "../session/store.js";
+import { SessionStore, optionalEnvValue } from "../session/store.js";
 import { PairingPageServer } from "../pairing/pageServer.js";
 import { QrPairing } from "../pairing/qrPairing.js";
-import { pairedFromStreamElement } from "../protocol/pairing.js";
+import { encodeRevokeRelayPairing, pairedFromRelay, type PairedData } from "../protocol/pairing.js";
+import { CONFIG_VERSION_2026_10_15 } from "../protocol/auth.js";
+import { InboundStream } from "../session/stream.js";
+import { callJspb } from "../transport/relay.js";
 import { callBinary } from "../transport/relay.js";
 import { receiveMessages } from "../transport/receive.js";
 import { apiKeyProvider } from "../transport/pageConfig.js";
@@ -22,10 +25,8 @@ function failure(e: unknown) {
   return { ...text(msg), isError: true };
 }
 
-/** Unset is allowed (transport reports spec gap Q-003); a literal placeholder is not. */
-function optionalEnv(name: string): string | undefined {
-  return process.env[name]?.trim() ? requireEnv(process.env, name) : undefined;
-}
+/** Optional settings: empty or unexpanded placeholders count as unset. */
+const optionalEnv = (name: string): string | undefined => optionalEnvValue(process.env, name);
 
 const server = new McpServer({ name: "grokbot-messages", version: VERSION });
 
@@ -74,14 +75,36 @@ async function getPairing(): Promise<QrPairing> {
     page,
     userAgent: `grokbot-messages/${VERSION}`,
     registerPhoneRelay: async (body) => callBinary({ apiKey: await apiKey() }, "Pairing", "RegisterPhoneRelay", body),
-    waitForPaired: async (_token, signal) => {
-      // ReceiveMessages request body and the route-14 path are Q-004; these throw SpecGapError until specified.
-      for await (const el of receiveMessages({ apiKey: await apiKey(), signal })) {
-        const p = el.response === undefined ? undefined : pairedFromStreamElement(el.response);
-        if (p) return p;
-      }
-      throw new Error("stream closed before pairing");
+    waitForPaired: async (token, signal) => {
+      // QR mode: stream opened with the RegisterPhoneRelay token; route-14 payload in relay f12 (A-017).
+      const key = await apiKey();
+      const auth = () => ({ network: "Bugle" as const, token, configVersion: CONFIG_VERSION_2026_10_15 });
+      const ac = new AbortController();
+      signal.addEventListener("abort", () => ac.abort(), { once: true });
+      let found: PairedData | undefined;
+      let failure: unknown;
+      const stream = new InboundStream({
+        auth,
+        open: (body, s) => receiveMessages({ apiKey: key, body, signal: s }),
+        ack: (body) => callJspb({ apiKey: key }, "Messaging", "AckMessages", body),
+        onRelay: (m) => {
+          try {
+            found = pairedFromRelay(m) ?? found;
+          } catch (e) {
+            failure = e;
+          }
+          if (found || failure) ac.abort();
+        },
+        onEvent: (e) => e.kind === "unknown-oneof" && console.error(`stream: unknown oneof case ${e.detail}`),
+      });
+      await stream.run(ac.signal).catch((e) => (failure ??= e));
+      if (found) return found;
+      throw failure ?? new Error(signal.aborted ? "pairing timed out" : "stream closed before pairing");
     },
+    revoke: async (p) => {
+      await callBinary({ apiKey: await apiKey() }, "Pairing", "RevokeRelayPairing", encodeRevokeRelayPairing(p.browser, p.token.token));
+    },
+    onDiagnostic: (d) => console.error(`pairing: route 14 seen / f4 present / f4.4 length ${d.f4_4Length ?? "absent"}`),
     save: (s) => store.save(s),
     onError: (e) => console.error(`pairing failed: ${e instanceof SpecGapError ? e.gap : (e as Error)?.name ?? "error"}`),
   });

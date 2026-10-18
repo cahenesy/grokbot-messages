@@ -68,8 +68,9 @@ export class InboundStream {
     if (item.kind === "unknown") this.d.onEvent?.({ kind: "unknown-oneof", detail: item.oneofCase });
     if (item.kind !== "relay") return; // heartbeat, batch markers: no-ops (A-016)
     const m = item.relay;
-    if (m.timestamp !== undefined && (this.lastSeen === undefined || m.timestamp > this.lastSeen)) this.lastSeen = m.timestamp;
     if (!this.dedup.firstSighting(m.id)) return;
+    // Last seen = f3 of the most recent relay message that passed dedup (A-017 [B@737226], [B@737471]).
+    if (m.timestamp !== undefined) this.lastSeen = m.timestamp;
     await this.d.onRelay(m);
     // Ack ID = relay f1 (INFERRED, SPEC §6.2 / A-008).
     await this.d.ack(encodeAckMessages(this.d.auth(), [m.id]));

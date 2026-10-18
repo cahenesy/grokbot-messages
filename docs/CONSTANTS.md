@@ -40,8 +40,10 @@ Status: ✅ spec/answer; 🟡 from implementer's bundle read, **pending spec-tea
 | Response | f3 pairing key, f5 token | §4.1 step 2 | ✅ | `protocol/pairing.ts` |
 | RefreshPhoneRelay response | f2 new pairing key | §4.1 step 5 | ✅ | `protocol/pairing.ts` |
 | QR payload | {f1 pairing key, f2 AES key, f3 HMAC key}, `#?c=` | §4.1 step 3 | ✅ | `protocol/pairing.ts` |
-| Paired container | f4 = {f1 phone id, f2 token, f3 browser id}; route 14 | §4.1 step 4 | ✅ | `protocol/pairing.ts` |
-| Route-14 stream path | — | — | ⛔ Q-004 | `protocol/pairing.ts` |
+| Paired container | binary oneof f1–f9; f4 = {f1 phone id, f2 token, f3 browser id, f4 bytes (UNVERIFIED)}; no f4 = failure | §4.1 step 4, A-017 [B@798710], [B@1211182] | ✅ | `protocol/pairing.ts` |
+| Route-14 path | relay f2 = 14; payload = relay f12, binary, in the clear | A-017 [B@1211140], [B@731886], [B@798993] | ✅ | `protocol/pairing.ts` |
+| After route 14 | new token replaces the RegisterPhoneRelay token; late pairing (link dead) → revoke | A-017 [B@1211140–1211700], [B@1206955] | ✅ | `pairing/qrPairing.ts` |
+| RevokeRelayPairing | f2 = full browser identity message; f1 auth header (INFERRED) | A-017 [B@1083891] | ✅ | `protocol/pairing.ts` |
 
 ## Crypto
 
@@ -73,6 +75,7 @@ Status: ✅ spec/answer; 🟡 from implementer's bundle read, **pending spec-tea
 | Relay message | f1 id, f2 type (19), f3 timestamp (last seen), f7 time, f12 envelope | A-015 [B@1069061], A-016 [B@737471] | ✅ | `protocol/messaging.ts` |
 | ReceiveMessages response | element "1"; f1 header; oneof f2 relay, f3 heartbeat, f4 batch start, f5 batch end, f6/f7 unknown | A-016 [B@948653], [B@732854], [B@740040], [B@737538] | ✅ | `protocol/messaging.ts` |
 | Relay dedup | by relay f1, 200-entry LRU | A-016 [B@737044] | ✅ | `protocol/messaging.ts` |
+| Resume value | f3 of the latest relay message that passed dedup (not the max) | A-017 [B@737226], [B@737471] | ✅ | `session/stream.ts` |
 | ReceiveMessages request | f1 AuthMessage, f4 {f1 start µs}; default (server ms − 60 s) × 1000 | A-015 [B@739513], [B@735540] | ✅ | `protocol/messaging.ts` |
 | Envelope in Message.f12 | base64 of binary protobuf | A-008 (INFERRED) | ⛔ Q-008 (gate kept until confirmed) | `protocol/messaging.ts` |
 | Message type | 19 | §6.1(b) | ✅ | `protocol/messaging.ts` |
