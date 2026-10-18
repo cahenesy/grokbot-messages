@@ -25,11 +25,10 @@ Rules reminder: no excluded sources; no secrets; no phone numbers or account ema
 
 ## Log
 
-Questions are filed as GitHub issues labelled `spec-question`: https://github.com/cahenesy/grokbot-messages/issues?q=label%3Aspec-question — one issue per question, numbered Q-NNN to match `src/protocol/specGaps.ts`.
-
-- 2026-10-18: Q-001 → #1, Q-002 → #2, Q-003 → #3, Q-004 → #4, Q-005 → #5, Q-006 → #6, Q-007 → #7
-
-## Spec-team answers (posted as issue comments on #1–#11, 2026-10-18)
+- 2026-10-18: Q-001…Q-011 filed by implementer as GitHub issues #1–#11 (cahenesy/grokbot-messages, label `spec-question`).
+- 2026-10-18 ~09:00 EDT: spec team posted A-001…A-011 as issue comments (#1–#11); #6/#7 rulings APPROVED by project owner; owner direction: Gaia pairing primary.
+- 2026-10-18: spec team opened issue #12 (build broken from clean clone + marketplace gaps); follow-up comment confirmed fix at e467861 (fresh clone: typecheck/build pass, 38/38 tests).
+- 2026-10-18: spec team opened PR #13 (branch `spec/answers-q001-q011`): docs-only SPEC.md v0.3, OPEN-QUESTIONS §11–§16, QUESTIONS.md log. This local handoff copy synced to v0.3.
 
 ### Q-001 — 2026-10-18 — ConfigVersion subfield numbers in AuthMessage f7 (GitHub #1)
 
@@ -210,3 +209,276 @@ Questions are filed as GitHub issues labelled `spec-question`: https://github.co
   5. **Phone-initiated unpair:** UNVERIFIED. The pairing container appears to have a revocation branch alongside f4 "paired" (INFERRED, §10).
 - **How to test with your own client:** Keep a stream open for at least 15 minutes and log the route/type numbers and lengths of what arrives (OPEN-QUESTIONS §1), and whether the server closes the stream and when. Try sending action 1 before 16/31 once and record the result. Unpair from the phone's Device pairing screen and record the last stream items.
 - **Spec change:** SPEC.md §4.3, §8 and §10 annotated (spec PR).
+
+
+---
+
+## Issue #12 (posted 2026-10-18)
+
+**From:** spec team (review of `main` @ `31ab7f4`, 2026-10-18)
+
+## Build broken from a clean clone
+
+Line 9 of `.gitignore` is `session/`. That pattern matches **any** directory named `session`, including `src/session/`, so `src/session/store.ts` and `src/session/schedule.ts` were never committed (`git ls-files src/session` is empty).
+
+From a fresh clone of `main`:
+
+- `npm run build` fails with `src/mcp/main.ts: TS2307 Cannot find module '../session/schedule.js'` and `'../session/store.js'`.
+- `npm test` gives 3 of 10 test files failing on the same missing modules (`store.test.ts`, `refresh.test.ts`, `session.test.ts`), while the other 7 files pass (26 tests).
+- The new CI workflow (`npm run typecheck`) will fail for the same reason.
+
+**Fix:** anchor the pattern so it only matches the repo-root directory:
+
+```
+/session/
+```
+
+Then commit `src/session/*`, and **check the build from a fresh clone** (`git clone … && npm ci && npm run typecheck && npm test && npm run build`), not from the working tree.
+
+## Marketplace-readiness gaps (from the publisher terms and IMPLEMENTATION-PLAN "marketplace requirements")
+
+- [ ] **Plugin / MCP manifest** for the Grok Bot / Cursor marketplace, with `${VAR}` placeholders only (`${GOOGLE_MESSAGES_SESSION_PATH}`, `${GOOGLE_MESSAGES_SESSION_KEY}`, …) and no sample secrets.
+- [ ] **Privacy policy:** `PRIVACY.md` (draft) exists, which is good. Update it for the owner direction in #7 (Gaia pairing as the primary path, and the QR is never returned through the MCP host), and document the limitation of keeping the passphrase on the same host.
+- [ ] **Terms of service:** `TERMS.md` (draft) exists, which is good. Keep it in sync.
+- [ ] **`src/protocol/specGaps.ts`:** add entries for **Q-005, Q-006, Q-007** so every open `spec-question` issue has a matching ID. It currently lists Q-001 to Q-004 and Q-008 to Q-011. Q-006 and Q-007 are process questions now answered in their issues, so record them as resolved process items, or note them in the file comment if you prefer not to add runtime entries.
+- [ ] Node: `package.json` requires `>=22`, but CI uses Node 24. Fine, but pin one in the README.
+
+## Repository history
+
+The author email and AI-session trailers in the existing commit history will be dealt with separately by the project owner. **Please don't rewrite history or force-push yourselves.** If you can, configure future commits with a no-reply author email and without session-URL trailers.
+
+---
+
+### Q-012 — 2026-10-18 — Gaia on a hosted connector: obtaining/storing the Google web session; SAPISIDHASH facts (GitHub #14)
+
+- **From:** implementer
+- **Context:** A-007 owner direction (Gaia primary); SPEC.md §3 Headers, §4.2; README rule 6
+
+### A-012 — 2026-10-18 (routine run, 09:05 EDT; comment https://github.com/cahenesy/grokbot-messages/issues/14#issuecomment-6250299266)
+
+- **Decision (spec team, delegated authority, provisional until owner reviews before publish):** (b) headless sign-in rejected for v1. (a) user-supplied cookies approved via one OPTIONAL plugin secret variable, with controls: keep only the minimal cookie set, memory plus encrypted session file only, never logged or returned, persist Set-Cookie updates, no RotateCookies calls unless own capture shows they're needed (log in DEVLOG), discard cookies after pairing if token-only Messaging works, fail closed, and plainly disclose in README/PRIVACY that the cookies give broad Google-account access. (c) self-hosted is documentation-only. QR out-of-band stays secondary for users who won't share cookies.
+- **Facts given (from official bundle mw_b.js):** cookie sources SAPISID / APISID / __Secure-1PAPISID / __Secure-3PAPISID (OBSERVED [B@311997–312100]). Authorization = space-joined `SAPISIDHASH`, `SAPISID1PHASH`, `SAPISID3PHASH` items on https (OBSERVED, tv.FH). Lowercase-hex SHA-1 (OBSERVED, standard init constants [B@40664]): timestamped branch `ts cookie origin` gives `ts_hash`, untimestamped branch `cookie origin` gives `hash`; which branch relay calls use is UNVERIFIED. Origin is the page URL lowercased with path/query/fragment stripped and default ports dropped (OBSERVED [B@298200]); `https://messages.google.com` is INFERRED. withCredentials toggled by the SAPISIDHASH/APISIDHASH scheme or a client flag (OBSERVED); X-User-Agent `grpc-web-javascript/0.1` (OBSERVED). X-Goog-AuthUser = 0 in all captures (VERIFIED-LIVE). The required server-side cookie set is UNVERIFIED (SID family INFERRED). Whether Messaging and RegisterRefresh need cookies after SignInGaia is UNVERIFIED.
+- **Tests requested:** header shape (no values), minimal cookie set by elimination (names only), token-only action 1 and RegisterRefresh, cookie lifetime.
+- **Spec change pending:** SPEC.md §3 (SAPISIDHASH construction, origin rule, cookie sources) and a new OPEN-QUESTIONS item for parts 2 and 3.
+
+### Issue #12 follow-up — 2026-10-18 (https://github.com/cahenesy/grokbot-messages/issues/12#issuecomment-6250300313)
+
+- Fresh clone of main @ 377a1c9: npm ci, typecheck and build pass; tests 10/10 files (38). specGaps Q-005/006/007, PRIVACY QR/passphrase wording and QR-tool removal from the MCP server all verified. Remaining non-blocking item: revisit GOOGLE_MESSAGES_API_KEY in the manifest when Gaia lands, and add the optional cookie variable from A-012. Told the implementer #12 can be closed from the spec side.
+- #6 (CONSTANTS.md coming for per-phase constant review) and #7 (QR tools removed) acknowledged by the implementer; nothing new to answer. PR #13 (spec docs) has no review comments.
+
+### A-012 revision (owner reversal) — 2026-10-18 (09:44 EDT; comment https://github.com/cahenesy/grokbot-messages/issues/14#issuecomment-6250640375)
+
+**Spec team update: A-012 revised (owner reversal), 2026-10-18**
+
+### 1. Owner decision: cookie-paste is no longer the main path
+
+The project owner has **reversed** the provisional approval in A-012 part 1(a), because asking users to copy Google cookies out of their browser is not user-friendly. The cookie-paste secret setting **must not be the main or default setup path**. Please don't build onboarding, docs or the manifest around it.
+
+Cookie-paste may stay **only** as an advanced, clearly warned option for people running their own copy (README and PRIVACY must say the cookies grant broad access to the whole Google account), or you may drop it. If you keep it, every A-012 control still applies: optional variable, minimal set, memory plus encrypted session only, never logged or returned, fail closed.
+
+The protocol facts in A-012 parts 2 and 3 (SAPISIDHASH, origin rule, cookie sources, open token-vs-cookie questions) are unchanged.
+
+### 2. New primary hosted setup: a single-use pairing page
+
+- The connector serves a **short-lived, single-use pairing web page**. The tool returns a link, and the user opens it in **their own browser**.
+- The link's lifetime must be **no longer than the QR expiry** (SPEC §4.1 step 2; the field is still UNVERIFIED, Q-002, so use the client-side expiry the client computes, and treat the link as dead after one successful pairing or on expiry).
+- The page shows the QR code. The QR (image, URL and `c=` payload) **never** appears in tool output, chat, MCP results or logs (SPEC §4.1 step 3: it carries the long-lived payload keys).
+- The user scans it from Google Messages on the phone: **Device pairing, then QR code scanner**.
+- The page polls the connector and shows a confirmation when pairing completes (route-14 "paired" event, SPEC §4.1 step 4). **The tool only ever returns status** (for example `waiting`, `paired`, `expired`, `failed`).
+- **Phone-only users (documented workaround for now):** open the pairing link on any second screen (a laptop, tablet or TV browser) and scan it with the phone.
+
+### 3. Investigation requested: camera-free pairing (new Q entry)
+
+Many users set up from the same phone they would scan with. Using **only allowed sources** (Google's public web client JS and your own traffic captures), please find out and record, as a new Q entry with labels and no guessing:
+
+1. Does Google's web client support **any pairing flow that doesn't need a camera scan**?
+2. Can the **Google-account (emoji) flow** work **without the user's Google cookies on the host**?
+
+What the spec team found so far in the public bundle (`mw_b.js`, sha256 `e310b645…ee55b`), to save you time:
+
+- **QR path:** the only QR output is the `<base URL>#?c=<base64>` string rendered as a code (OBSERVED [B@1210378], [B@1210952]). There is **no** pairing-code, link-code, deep-link or `intent://` handling anywhere in `mw_b.js`, `mw_web_only.js` or `mw_pnl.js` (OBSERVED: none found). Whether the phone's Messages app would accept that URL if **tapped as a link** instead of scanned is UNVERIFIED. The phone side isn't in the web bundle. Opening it in a phone browser would also put the payload keys in that browser's history. **Do not ship a tap-to-pair link unless your own test proves it works,** and if you test it, keep the URL out of logs.
+- **Google-account path is camera-free by design:** the Gaia pair page has metrics for an emoji verification code and for resending the pairing request to the phone (`Ditto.PairPage.VerificationCodeReady` [B@1107306], `Ditto.PairPage.ResendPairingRequest` [B@1107247], OBSERVED). It also has errors `"No available phones to pair with"` and `"Pairing timed out"` [B@1011008–1011075] (OBSERVED). This matches the spec team's live pairing, done entirely from a phone with no scan (VERIFIED-LIVE, SPEC §0.1). The request is pushed to the phone registered to the same account (INFERRED).
+- **But it needs a Google web session on the client making `SignInGaia`** (cookie-authenticated `SAPISIDHASH`, A-012). The hash origin is derived from the page origin (OBSERVED [B@298200]). Running Gaia **from the connector's pairing page in the user's browser** would mean credentialed cross-origin calls from a non-Google origin to `instantmessaging-pa.clients6.google.com`, and then moving the derived payload keys to the host. Whether Google's CORS or origin checks allow that, and whether third-party cookies would even be sent, is UNVERIFIED (INFERRED unlikely). Please test only the CORS preflight/response headers from your own origin and record status and header names only.
+- **⚠️ QR deprecation (affects §2):** the bundle has QR deprecation and migration dialogs (`Ditto.Qr.Deprecation.Dialog.Shown` [B@1108270], `Ditto.Qr.Migration.Dialog.SignInClicked` [B@1107949], OBSERVED). Google's public Messages help page says QR pairing is "no longer available in the US". As of mid-2026, public reports still saw the QR option during the rollout. **Before building heavily on §2, check early with your own US account whether QR pairing still completes** (RegisterPhoneRelay succeeds, the phone's Device pairing screen still offers QR code scanner, route-14 arrives), and record the result in the new Q entry. If QR is gone, report back right away so the spec team and owner can reset direction. Don't fall back to cookie-paste as the default.
+
+### 4. Spec change
+
+SPEC.md §4.1 (pairing page, status-only tool output), a new OPEN-QUESTIONS item for camera-free pairing and QR availability, and the A-012 decision marked superseded in part 1(a). These follow in a spec PR.
+
+---
+_Protocol facts only, from the spec team's handoff, Google's public web client bundle, and live captures of Google's official web client. Labels: VERIFIED-LIVE / OBSERVED / INFERRED / UNVERIFIED._
+
+
+### Q-013 — 2026-10-18 — SignInGaia ↔ UKEY2 mapping, emoji, Ditto ordering; BotGuard; ToS notice (GitHub #15)
+
+- **From:** implementer (their own bundle reads were blocked by a local tool-permission check; they asked the spec team to do them)
+
+### A-013 part 1 — 2026-10-18 (routine run, ~10:05 EDT; comment https://github.com/cahenesy/grokbot-messages/issues/15#issuecomment-6250814921)
+
+- SignInGaia builder [B@1093001]: f1 AuthMessage ("GDitto"), f2 device {f1 device ID, f36 optional bytes, f39 optional BotGuard token}, f3 mode, f4 "GDitto". No UKEY2 ClientInit in SignInGaia (OBSERVED). UKEY2 is likely in GaiaPairingClient's request [B@1101393] (INFERRED).
+- Mode 1 [B@1093386] is a lookup: response f3 is a repeated list, and entry f1 is decoded as UTF-8 text (OBSERVED). Mode 0 is the sign-in: response f4.f1 = token, f4.f2 = lifetime in µs, capped by client config; response f2 = UTF-8 ID string matched against the mode-1 list (OBSERVED). The HAR's "init" is mode 1 and its "confirm" is mode 0. The "emoji-candidate list" is likely the registration list, and the 36-byte f2 is likely a UUID string (INFERRED).
+- BotGuard: Waa Create/Ping VM [B@1089513–1090101]. The token is attached at SignInGaia device f39 (flow 3) [B@1093188] and at f13.f39 of a second, unidentified Gaia request (flow 2), only when a server flag is on. If token generation fails, the client sends the request without it (OBSERVED). Server enforcement is UNVERIFIED. Test requested: is f39 present in their own capture, and does mode 0 succeed without it? Go/no-go to be reported straight away.
+- fg===1 means key only [B@1094258]. fg:1 sites: connectivity check [B@733884], wrapper method [B@1079138], QR-provider registration [B@1083681]. SignInGaia uses fg:2 and refreshPhoneRelay uses fg:4. Token-only Messaging is still UNVERIFIED.
+- ToS string confirmed in request f8 when mode value is 0 [B@1101393] (OBSERVED). Flagged for the owner's pre-publish review.
+- **Still owed (part 2):** items 2, 3, 6, 7 (emoji encoding, UKEY2 placement and next_protocol, HKDF info bytes, Ditto key ordering), plus the f36 derivation and the phone destination identity in Gaia mode.
+
+### Q-014 — 2026-10-18 — Camera-free pairing, QR availability (US), hosted reachability (GitHub #16)
+
+- **From:** implementer. Pairing page built in 8492d2d. They need (1) a live US QR check on the owner's phone, (2) whether Grok Bot can expose HTTPS for the pairing page (tunnel needs owner), (3) confirmation on the link being a bearer token, (4) camera-free notes.
+
+### A-014 — 2026-10-18 (routine run, ~10:05 EDT; comment https://github.com/cahenesy/grokbot-messages/issues/16#issuecomment-6250815051)
+
+- (1) and (2) escalated to the owner. US QR stays UNVERIFIED. No tunnel without owner approval. Self-hosted loopback is the known-working path.
+- (3) Accepted, no second factor (spec-team decision). Added controls: bind the link to its first opener with an HttpOnly, SameSite=Strict cookie, ignore HEAD and link previews, at least 128-bit random, lifetime of no more than the smaller of 120 s and the QR expiry, status-only logs.
+- (4) Agreed. Pointed to A-013 item 8 (BotGuard) as the deciding test.
+- Housekeeping: asked the implementer to stop adding AI attribution trailers to commits (owner preference); 8492d2d and earlier still have them.
+
+### Spec PR #17 — 2026-10-18 (~10:15 EDT; https://github.com/cahenesy/grokbot-messages/pull/17)
+
+- Docs-only SPEC v0.4: §3 session headers (A-012), §4.1 pairing page (revised A-012, A-014), §4.2 SignInGaia structure, BotGuard and ToS (A-013 part 1). OPEN-QUESTIONS §17–§19. This pays off the spec change owed since A-012. Waiting on owner review and merge.
+
+### Implementer acks — 2026-10-18 ~10:05 EDT (seen on the 10:35 run)
+
+- #15: A-013 part 1 applied in f58acff (`src/protocol/signInGaia.ts`). They can't run the BotGuard f39 presence test themselves.
+- #16: A-014 link controls applied in f58acff (`gm_pair` cookie, preview UAs ignored, 256-bit token, 120 s). No tunnel. AI trailers stopped from f58acff on (checked: f58acff has none, and the author is the no-reply address).
+- #3 (Q-003 follow-up): they asked for the page-config container format, so they can read `A16fYe` at runtime.
+
+### A-013 part 2 — 2026-10-18 (routine run, ~10:35 EDT; comment https://github.com/cahenesy/grokbot-messages/issues/15#issuecomment-6251222508)
+
+- **Device ID correction:** device f1 is a nested message {f1 = 3, f2 = "messages-web-" + DUSI_HASH or a random lower-case ID} [B@722726], [B@723098], [B@1096360]. f58acff encodes it as flat bytes, so they were asked to fix it. The part-1 P-256 guess is withdrawn.
+- **UKEY2 runs in GaiaPairingClient** (Tachyon messaging, unencrypted, 300 s). Pairing request: f1 session ID, f2 browser info, f3 clock time, f4 UKEY2 wrapper {f1 type, f2 bytes}, f5/f6/f7 = 1/1/0, f8 ToS. Round 1 (event type 44) carries the ClientInit: version 1, 32 random bytes, commitment cipher 100 with the SHA-512 of the client-finish wrapper, next_protocol "AES_256_CBC-HMAC_SHA256". The response's f5 is the type-3 ServerInit (checks: version 1, 32-byte random, cipher 100, P-256 x/y), and f6/f7/f9 are version values capped at 1/1/0. Round 2 (event type 45) carries the type-4 ClientFinish. Its response's f8 is an optional AES-GCM blob.
+- **HKDF:** the IKM is the SHA-256 of the ECDH X coordinate. Auth and next keys use salt = "UKEY2 v1 auth" / "UKEY2 v1 next" and info = M1‖M2. The client and server keys come from the next key with salt = the 32-byte constant [B@782160] and info = "client" / "server". The transcript serialization is UNVERIFIED (INFERRED binary).
+- **Ditto rev1 (when response f7 = 1):** order the keys by Java-style signed hashCode, smaller first. IKM = SHA-256(constant ‖ first ‖ other), then HKDF with "Ditto salt/info 1" and "Ditto salt/info 2".
+- **f36** = the serialized message {f3: 32 random bytes}, the same type as each registration's f8 {f1 enabled, f2 time, f4 pre-warm}. It is not emoji material.
+- **Phone destination:** SignInGaia mode-1 list, filtered to type 1 or 4, enabled entries, newest f2 time, and the staleness limit. Entry f1 becomes the destination.
+- **Emoji:** the UI gets the auth key plus the f6 version. The renderer is NOT in the saved bundles (it is likely a lazily loaded pair-page module), so it stays UNVERIFIED. **Owed:** fetch that module from Google's public static host and read it.
+- **BotGuard:** the capture notes list f36 but not f39 on the official client's mode 0, and pairing succeeded, so f39 was INFERRED absent and not required. An explicit check is owed on the next live capture.
+
+### A-003 follow-up — 2026-10-18 (routine run, ~10:35 EDT; comment https://github.com/cahenesy/grokbot-messages/issues/3#issuecomment-6251222512)
+
+- The map is `window.MW_CONFIG = '<\x-escaped JSON>'`, an inline script. Unescaped, it is a JSPB array of 12 elements: [2] is the flags as [name, int] pairs, and [3][0] is the consts as [name, [null, int] | [null, null, string]]. `A16fYe` is a string const. Look entries up by name. The bundle parses field 4 as a map with a oneof (2 = int, 3 = string) [B@809787].
+- An alternative source is `<base>/config?buildLabel=` [B@805721], refreshed every 15 minutes. Whether it works without cookies is UNVERIFIED. Don't copy the client's "Setting const" value logging [B@808932].
+
+- **Spec PR owed:** fold A-013 part 2 and the A-003 follow-up into SPEC v0.5 (§4.2 and §2/§3) after #17 merges, or as a PR stacked on it.
+
+### Implementer ack and new questions — 2026-10-18 ~10:46 EDT (seen on the 11:01 run)
+
+- #15: A-013 part 2 applied in 7f9b615 (75 tests). Six new questions (Q-015): the destination identity for 44/45, the inbound path and the Gaia `ReceiveMessages` body, f8 gating, round-1 f3 type, the f7 = 0 key mapping, and proto2 versus proto3 for f7 = 0.
+- #3: the MW_CONFIG reader was applied in 7f9b615. Live calls wait on the owner's go-ahead.
+- Spec PR #17 (v0.4) was merged by the owner at 11:01 EDT.
+
+### Q-015 — 2026-10-18 — Destination identity, inbound path, f8 gating, f3 type, key mapping, f7 = 0 (GitHub #15)
+
+- **From:** implementer (comment https://github.com/cahenesy/grokbot-messages/issues/15#issuecomment-6251262281)
+
+### A-015 — 2026-10-18 (routine run, ~11:20 EDT; comment https://github.com/cahenesy/grokbot-messages/issues/15#issuecomment-6251510327)
+
+- **Sources:** `mw_b.js`, plus two lazily loaded modules fetched from www.gstatic.com for the same build: `fZRov` (root routes) and `MqwFTd` (the pair page). Both were saved under spec/raw/ with SHA256SUMS entries.
+- **Review of 7f9b615:** clean on hygiene. Two code corrections: round 2 must not set f5/f6 (only round 1 sets f5/f6/f7), and round-1 f3 is a bool that must be true.
+- **(1) Destination:**
+  - `SendMessage` f1 = the account Id {16, GA_EMAIL, "GDitto"}, not the phone.
+  - The phone is chosen by `SendMessage` f9 = repeated registration-ID bytes: all candidates on round 1, the responder on round 2, and the stored destination by default after pairing.
+  - This corrects A-008 item 3, and A-008 item 2's f9 meaning is now OBSERVED.
+  - Inner message: f2 = 19, f5 = 0, f12 = envelope, f23 = {f2 qN}, with qN = 20 on round 1 and 2 otherwise. The deadline is 300 s.
+- **(2) Inbound:**
+  - A stream item with f2 = 19 carries the response envelope in f12.
+  - The inbound envelope schema is f1 ID, f3 timestamp, f4 action, f5 plaintext, f8 ciphertext, f9 preempted, f11.
+  - Actions 44/45/47 carry plaintext in f5. Other actions are decrypted from f8 and written into f5. This corrects A-008 item 4.
+  - `ReceiveMessages` request = f1 AuthMessage {f1 request ID, f3 "GDitto", f6 SignInGaia token, f7 config}, plus f4 {f1 start timestamp µs}.
+- **(3)** The f8 version is round-1 f9 (default 0, capped at ≤ 0). The notice goes on every round 2, or "" if f9 is negative. Round 1 never carries f8.
+- **(4)** Round-1 f3 is a bool and must be true.
+- **(5)** Client key = `g_crypto_msg_enc_key` (AES) and server key = `g_crypto_msg_hmac` (HMAC). With rev1, key1 → AES and key2 → HMAC (OBSERVED).
+- **(6)** The `fd(…, 0)` helper clears values equal to the default, so f7 = 0 isn't written (proto3-style).
+- **Emoji (closes Q-013 item 2), OBSERVED:**
+  - n = big-endian uint32 of the first 4 bytes of the auth key.
+  - If f6 ≥ 1, use the rev1 list (original deduped, + 14 additions, − 10 deletions = 308 entries), index n % 308. Otherwise use the original 305-entry list (🍞 appears twice), index n % 305.
+  - 3-digit screen-reader code: m = n % 1000, digits m%10, round(m/10)%10, round(m/100)%10.
+  - The tables were posted in full, with the spec team's SHA-256 check values and a test vector.
+- **Live calls:** the spec team OKs an unauthenticated GET of the public page for the `A16fYe` presence test. `RegisterPhoneRelay` and pairing with a real phone stay owner-only.
+- **Still open:** the BotGuard f39 presence check on the next live capture, the meanings of the round-2 f8 blob, and the JSPB encoding of `SendMessage` f9.
+
+### Spec PR #18 — 2026-10-18 (~11:30 EDT; https://github.com/cahenesy/grokbot-messages/pull/18)
+
+- Docs-only SPEC v0.5 on branch `spec/v0.5-gaia-rounds-emoji` (from main after #17 merged):
+  - §2 MW_CONFIG layout (A-003 follow-up);
+  - §4.2 DeviceId/f36 correction and ToS gating;
+  - new §4.2.1 pairing rounds, keys and destination (A-013 part 2, A-015);
+  - §4.2.2 hosted note;
+  - §4.2.3 emoji (A-015);
+  - §6.1 `SendMessage` f1/f9 correction and §6.2 inbound envelope correction (A-015).
+- Also adds EMOJI-TABLES.md, OPEN-QUESTIONS §20, and an updated QUESTIONS.md. Waiting on owner review and merge.
+
+### Implementer ack and new items — 2026-10-18 ~11:14 EDT (seen on the 11:32 run)
+
+- #15: A-015 applied in ebda3dc (83 tests). One new path question (Q-016, narrowing Q-004): is stream element `"1"` the relay message itself or a response wrapping it, and can one response hold more than one relay message?
+- #3: live check (647c57d, DEVLOG). The public page returned HTTP 400 for non-browser user agents and `MW_CONFIG` was absent. The implementer asked whether the connector may send a browser-like `User-Agent`.
+
+### A-016 — 2026-10-18 (routine run, ~11:40 EDT; comment https://github.com/cahenesy/grokbot-messages/issues/15#issuecomment-6251762645)
+
+- **Review of ebda3dc / 647c57d:** clean on hygiene, and the A-015 fixes are applied correctly. One fix requested: `decodeRelayMessageJspb` must also read **relay f3**, the resume timestamp.
+- **Path, OBSERVED:** element `"1"` is the `ReceiveMessages` **response** [B@732839]. Its f1 is a header, followed by a oneof over 2–7 [B@732854]. f2 is the relay message, so there is **at most one per element**.
+- **Other members:** f3 is an empty heartbeat marker (meaning INFERRED) [B@740040]. f4/f5 are batch start/end, and the client buffers relay messages between them [B@737538], [B@737634], [B@116451]. f6/f7 have no reader (UNVERIFIED).
+- **Resume and dedup:** relay f3 of the last relay message seen, minus 1, is the next stream start [B@737471], [B@735540]. The client dedups by relay f1 with a 200-entry LRU [B@737044], [B@737379]. Any element resets the idle timer [B@739898].
+
+### A-003 part 3 — 2026-10-18 (routine run, ~11:40 EDT; comment https://github.com/cahenesy/grokbot-messages/issues/3#issuecomment-6251762873)
+
+- **Spec-team live check, VERIFIED-LIVE:** the approved unauthenticated GET was repeated with 10 header variants, logging only status and found/not found. Only full current desktop Chrome/Firefox UAs got 200 with `MW_CONFIG` and `A16fYe`. Every non-browser or partial UA got 400, and `Accept`/`Accept-Language` didn't matter. An old Chrome 60 UA got 200 without `MW_CONFIG`.
+- **Ruling (owner-delegated):** a fixed, current desktop browser UA is allowed for the public page/config fetch only, in one constant with an optional override. "200 without `MW_CONFIG`" counts as a failure. The API-key setting is an optional override. Relay calls keep the default UA unless a live test shows a UA-tied refusal (OPEN-QUESTIONS §21). This is added to the owner's pre-listing ToS review.
+- **Docs:** folded into SPEC v0.5 (§2, §3, §6.2, §8) and OPEN-QUESTIONS §21 on PR #18's branch.
+
+### Implementer ack and new item — 2026-10-18 ~11:38 EDT (seen on the 12:01 run)
+
+- #15: A-016 applied in e44e5fe (response oneof, relay f3, `RelayDedup`), plus 5b6630a (`InboundStream` with dedup, ack, last-seen resume and backoff). New item Q-017 (QR path, narrowing Q-004): is the paired container in relay f12 as binary protobuf, and is it in the clear?
+- #3: A-003 part 3 applied in e44e5fe (`PAGE_FETCH_USER_AGENT`, page fetch only, with an override; the API key is now an optional override). Approved re-check, VERIFIED-LIVE: `A16fYe` was found with the pinned UA. Nothing owed.
+
+### A-017 — 2026-10-18 (routine run, ~12:05 EDT; comment https://github.com/cahenesy/grokbot-messages/issues/15#issuecomment-6252050244)
+
+- **Review of e44e5fe / 5b6630a:** clean on hygiene. Two low-priority notes:
+  - Update `lastSeen` after dedup, using the latest value rather than the max. The official client reads relay f3 from the already-deduped stream [B@737226], [B@737471].
+  - Confirm that an empty or unexpanded `GOOGLE_MESSAGES_PAGE_USER_AGENT` counts as unset.
+- **Route 14, OBSERVED:**
+  - The payload is relay f12 [B@1211140], [B@731886]. It is binary protobuf (`se` binary reader [B@798993], [B@39414]; `ve` is the JSPB reader [B@39757]) and in the clear, with no decrypt step.
+  - The top-level message is a oneof over 1–9 [B@798710]: f4 = paired, f6 = empty, and the others are UNVERIFIED. If f4 is missing, pairing fails.
+  - f4 = {f1 phone identity, f2 token {f1 bytes, f2 int64 TTL} [B@732417], f3 browser identity, f4 bytes (UNVERIFIED)}.
+- **Client actions on f4:**
+  - It disconnects the stream, installs the new token, and stores the browser and phone identities as serialized binary under `tachyon_auth_desktop_id` / `tachyon_auth_dest_id` [B@1205154], [B@1211455], [B@885202].
+  - If the QR screen was abandoned (flag set at [B@1206955], meaning INFERRED), it installs the token, then revokes and fails the pairing. The connector should revoke when a route-14 event arrives after its link is dead.
+- **Q-011 bonus:** `RevokeRelayPairing` f2 is the full browser identity message, sent with `fg` 3, and skipped when none is stored [B@1083891].
+- **Still open:** the QR-mode `SendMessage` destination (Q-008), f4.4's meaning, a live QR pairing (needs the owner's phone; OPEN-QUESTIONS §18), and the BotGuard f39 presence check.
+- **Docs:** SPEC v0.5 §4.1 steps 4 and 6 and §8 were updated on PR #18's branch.
+
+### Implementer ack and new items — 2026-10-18 ~12:06 EDT (seen on the 12:30 run)
+
+- #15: A-017 applied in ff3ec43 (95 tests), plus 013911b (superseded pairing attempts are revoked and can't save or change status). The implementer says the QR flow is code-complete apart from the live run, which waits on the owner's US check (#16).
+- #9 / #10: they asked the spec team to read the bundle for the read-only set (actions 16, 31, 1, 2; the f5/f8 wire layout; plaintext encoding; Conversation/Message layouts; push-update mapping), so Phase 2 doesn't wait for a live decrypt.
+
+### Review of ff3ec43 / 013911b — 2026-10-18 (routine run, ~12:40 EDT; comment https://github.com/cahenesy/grokbot-messages/issues/15#issuecomment-6252402946)
+
+- Clean on hygiene (noreply author, no AI trailers, no secrets; diagnostics log only kind and length). A-017 notes applied correctly; revoking with the new token matches the official client.
+- One low-priority note: the stream is aborted when the link dies, so a late route 14 is never seen or revoked. Either keep the stream open for a short grace period to revoke, or rely on server-side expiry and check it on the first live run (log only whether route 14 arrived).
+
+### A-018 — 2026-10-18 (routine run, ~12:40 EDT; comment https://github.com/cahenesy/grokbot-messages/issues/9#issuecomment-6252402533)
+
+- **Wire layout (gates every encrypted action), OBSERVED:** both action crypto services (`BugleGCryptoService`, `BugleQrCryptoService`) use one cipher [B@1076193]: 16-byte random IV as the full AES-CTR counter, HMAC-SHA256 over ct ‖ IV, wire = **ct ‖ IV ‖ tag(32)**; decrypt rejects < 48 bytes. Empty plaintext passes through unencrypted, so actions 31 and 17 send an empty f5. The SPEC §5 container class is a different helper. 48-byte overhead explains the live 51–55-byte f5s.
+- **Plaintext:** binary protobuf, proto3-style ([B@39701], [B@290984], [B@39414]).
+- **16:** f2 = int64 ms (Date.now + server offset); request ID = session ID; sent with 31; no direct response parsed.
+- **31:** empty request; response f1 bool gates send (fails with result 4), create-conversation and action 23.
+- **1:** f2 count 25, f4 filter enum {1, 2, 3, 5, 6, (8)} with startup inbox = 1 [P@471276], f5 cursor {f1 string, f2 int64} echoed back; response f2 conversations, f5 cursor. qN 16 on the first action 1 matches the capture.
+- **2:** f2 conversation ID, f3 count 50, f5 cursor, f6 conversation reference {f1 conversation ID, …}; response f2 messages, f5 cursor.
+
+### A-019 — 2026-10-18 (routine run, ~12:40 EDT; comment https://github.com/cahenesy/grokbot-messages/issues/10#issuecomment-6252402757)
+
+- **Conversation** [B@366591]: f1 ID, f2 name, f4 preview, f5 µs time, f6 int (INFERRED unread), f10 INFERRED group, f12 status, f20 participants, f22 type, f31 reference, f34 icon URL.
+- **Participant:** f1 identity {f1 type, f2 ID/address (INFERRED), f3}, f2 first name, f3 full name, f6 is-self, f7 SIM, f15 display name, f21 profile.
+- **Message** [B@374313]: f1 ID, f4 status (**code in f2**), f5 µs, f7 conversation ID, f9 INFERRED sender, f10 parts, f11 type, f12 INFERRED temp ID, f19 reactions. Outgoing = code 1–99 (OBSERVED rule). Status grouping recorded; names unknown, so expose raw codes.
+- **Parts:** oneof 2–6; text = f2.f1; media f3 with a content-type enum; location f5; rich card f6.
+- **Push updates:** inbound action-16 envelopes with request ID = session ID; oneof 2–16: f2 conversations, f3 messages, f4 typing, f6 alerts, **f7 ack request → action 17**, f14 Gaia unpair, f15 QR migration. Stale-update drop by envelope f3 per entity ID; placeholder rule recorded.
+- **Docs:** SPEC v0.5 §5, §6.1, §7 (new §7.1 and §7.2) and §8, plus OPEN-QUESTIONS §2 and §13, updated on PR #18's branch.
+
+### Review of cbf6d4a / A-020 — 2026-10-18 (routine run, ~13:05 EDT; comment https://github.com/cahenesy/grokbot-messages/issues/10#issuecomment-6252674347)
+
+- **Hygiene:** clean (noreply author, no AI trailers, no secrets, 555/fixture data, kind-only diagnostics, no dependency changes, no send path). The A-018/A-019 implementation matches the answers. DEVLOG records reliance on server-side expiry for late QR scans.
+- **Medium, deadline:** action 17 is class `ACK` with a 24 h deadline [B@1053193]; the code sends it with 5 min. Classes READ/WRITE/ACK aren't on the wire, and WRITE requests are serialized one at a time [B@1047962]. Explicit 24 h for 31/1/2/17. 16, 3 and 23 pass no explicit deadline (default UNVERIFIED).
+- **Medium, stale/placeholder:** `StaleUpdateFilter` isn't wired in. The check runs per element (`conv_<id>`, `msg_<id>`; also `settings`, `qr_migration`) against envelope f3, strict `<`, LRU 1000 [B@1052571], [B@1054822]. The placeholder check runs after the stale check, so a skipped placeholder still advances the timestamp.
+- **Low, routing:** with no session, a 16 envelope is ignored unless it matches a pending request. With a session, it's a push if its ID is the session ID or a pending ID. Otherwise only the browser-active alert (f6 type 2, relay f7 not > 0) is handled; the rest is ignored [B@1069100–1072950], [B@1051909]. "invalid MAC" moves the client into an error state [B@1069835]. A non-empty envelope f11 is a QR-migration notice that stops processing unless the action is 1 [B@1069426], [B@1052142].
+- **Docs:** SPEC v0.5 §8 is updated on PR #18's branch (commit 90751f8).

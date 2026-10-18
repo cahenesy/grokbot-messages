@@ -16,7 +16,7 @@ Do not use third-party traffic, other people's numbers, or excluded implementati
 
 ## 2. Field-5 crypto known-plaintext
 
-**Unknown:** confirm that Bugle action envelope field 5 is flat `ciphertext || IV(16) || HMAC-SHA256(32)` under AES-256-CTR, with HMAC over `ciphertext||IV` (preferred hypothesis in `SPEC.md` §5). Nested encrypted-container protobuf is contradicted by live sizes but not fully disproven without decrypt.
+**Unknown:** confirm that Bugle action envelope field 5 is flat `ciphertext || IV(16) || HMAC-SHA256(32)` under AES-256-CTR, with HMAC over `ciphertext||IV` (preferred hypothesis in `SPEC.md` §5). Nested encrypted-container protobuf is contradicted by live sizes. **A-018 (OBSERVED):** the bundle's action crypto writes exactly this flat layout and passes an empty plaintext through unencrypted (SPEC §5), so this test is now a confirmation rather than an open choice. Record pass/fail only.
 
 **Test:** In your client, encrypt a **fixture** plaintext you chose (fixed conversation id, fixed temp message id, fixed short body such as `test-vector-001`). Capture the field-5 bytes your client would send (or that the official client sends for the same known body if you inject via DevTools only on your account). Verify decrypt + HMAC with the keys derived per `SPEC.md` §5. Do **not** log plaintext from real chats.
 
@@ -104,7 +104,7 @@ Do not use third-party traffic, other people's numbers, or excluded implementati
 
 ## 13. Plaintext action layouts and object schemas (Q-009, Q-010)
 
-**Unknown:** the field numbers for actions 1, 2, 9, 16, 31 and 3 beyond §7, the action-3 status enum, and the Conversation/Message schemas (ID, name, participants, timestamp units, text, sender, direction, status).
+**Narrowed by A-018 / A-019 (OBSERVED in JS, SPEC §7.1–§7.2, §8):** layouts for actions 16, 31, 1 and 2, the Conversation, Participant, Message and part fields, and the push-update cases are now read from the bundle. **Still unknown:** the action-9 destination list, the action-3 content field and status enum, the names behind the message status codes and the action-1 filter values other than 1, the meaning of the cursor int64, and whether Message f9 matches participant identity f2. All of the above still needs a live decrypt to confirm.
 
 **Test:** Once your session keys work (Gaia, §4.2), decrypt the responses to your own self-chat requests. Plant known values (fixture text, known count, known send time, one reaction) and diff. Report field numbers, types and lengths only, with no real message content.
 
@@ -158,11 +158,29 @@ Do not use third-party traffic, other people's numbers, or excluded implementati
 
 ---
 
+## 20. Google-account pairing rounds end to end (Q-015)
+
+**Unknown:**
+- how `SendMessage` f9 (the registration-ID targets) is encoded in JSPB (a base64 string, or something else);
+- whether round-2 f8 (the optional AES-GCM blob) appears for ordinary accounts, and what its fields mean;
+- whether the binary-encoded UKEY2 transcript (SPEC §4.2.1) produces the same emoji the phone shows.
+
+**Test:** In your own paired session, record only the JSPB type of `SendMessage` f9 (string or array) and its decoded length. On your first end-to-end attempt, compare the emoji your client computes with the one the phone shows, and record only match or no match. Record only whether round-2 f8 is present and its length. Never record keys, tokens, account emails or registration IDs.
+
+## 21. Stream element kinds and relay-call user agent (A-016, A-003 part 3)
+
+**Unknown:**
+- what the `ReceiveMessages` response f1 header holds, the heartbeat (f3) interval, the client idle-timer value, and whether the f4/f5 batch markers or the unread f6/f7 members ever appear;
+- whether relay calls (`instantmessaging-pa*`) refuse a non-browser HTTP `User-Agent`, as the public page does.
+
+**Test:** On your own paired session, log only the set oneof case number of each stream element, the relay f2 route, and the time between f3 markers. Never log contents. Make one relay call with the runtime's default UA and, only if it is refused, one with the pinned browser UA. Record only the status codes.
+
+---
+
 ## Still useful but lower priority
 
 - QR (`RegisterPhoneRelay`) path field lengths and `c=` base64 variant (Gaia path is the primary target for the MCP connector).
 - `CANCEL_GAIA_PAIRING` wire call.
-- Full UKEY2 submessage mapping inside SignInGaia field 2 beyond type=3.
 - Application-level action 17 ack vs relay `AckMessages`.
 - Concurrent second browser session / session-preempted behavior.
 - Inactivity unpair (~14 d config flag) — do not wait; treat as OBSERVED config only.
