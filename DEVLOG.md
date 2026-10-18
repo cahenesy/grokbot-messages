@@ -39,3 +39,8 @@ Required by clean-room rule 5 (`docs/handoff/README.md`). This log names every U
 
 - Implemented from the spec team's written answers only: DeviceId shape, f36, registration choice, UKEY2 rounds (actions 44/45), HKDF table, rev1 ordering, page-config `MW_CONFIG` reader. Test vectors use locally generated random keys.
 - Not exercised against Google's live servers. Live calls (runtime page read, RegisterPhoneRelay, pairing) wait on the owner's go-ahead.
+
+## 2026-10-18 — live check (spec-team approved, A-015): public page config
+
+- Unauthenticated GET of `https://messages.google.com/web/authentication` through `src/transport/pageConfig.ts`, no cookies. Logged only status and found/not-found.
+- Result: **HTTP 400** with UA `grokbot-messages/0.0.1` and with Node's default UA; `MW_CONFIG` not present. The earlier 2026-10-18 fetch with a Chrome-style UA (bundle read) got 200. No browser-UA retry was made: impersonating a browser is an owner decision.
