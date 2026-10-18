@@ -1,6 +1,6 @@
 # Google Messages for Web Protocol: Clean-Room Behavioral Specification
 
-Version 0.2 (handoff), 2026-10-18. Clean-room behavioral specification for the implementation team.
+Version 0.3 (handoff), 2026-10-18. Clean-room behavioral specification for the implementation team. v0.3 adds the spec-team answers to implementer questions Q-001–Q-011 (§0.5) and marks the corresponding gaps inline.
 
 ## 0. How to read this document
 
@@ -24,7 +24,7 @@ Live Google-account (emoji-match) pairing was analyzed with a schema-less protob
 
 1. Gaia mode uses host `instantmessaging-pa.clients6.google.com` with network string **`"GDitto"`**. The regional host `instantmessaging-pa-jms-us.clients6.google.com` is used for the RCS identity path (`ListIdentities`, `SignInSecondary`, `PullMessages`). **VERIFIED-LIVE.**
 2. All observed Gaia RPCs use `Content-Type: application/json+protobuf` and `X-User-Agent: grpc-web-javascript/0.1`. Binary protobuf / `Pairing/*` were not used (expected for non-QR). **VERIFIED-LIVE.**
-3. AuthMessage layout: f1=requestId (uuid), f3=network (`GDitto`/`RCS`), f6=token bytes (len 140 GDitto / 176 RCS), f7=ConfigVersion with Year/Month/Day/V1/V2 = 2026/10/15/4/6. **VERIFIED-LIVE.**
+3. AuthMessage layout: f1=requestId (uuid), f3=network (`GDitto`/`RCS`), f6=token bytes (len 140 GDitto / 176 RCS), f7=ConfigVersion with Year/Month/Day/V1/V2 = 2026/10/15/4/6. **VERIFIED-LIVE.** The **subfield numbers inside f7 are UNVERIFIED** (Q-001). In JSPB, index *i* = field *i+1*, so confirm them from the positions in your own request bodies. Whether f7 is required on every call is UNVERIFIED.
 4. SignInGaia is a two-step emoji flow: init (UKEY2-style blob type=3) → confirm (adds field 36) → response field 4 = `[token, TTL]`. TTL = 24 hours in microseconds. **VERIFIED-LIVE.**
 5. Device identity wire shape is `[typeEnum, sourceId, network]` with typeEnum=`16` for the GDitto browser device (not a large user id). **CONTRADICTED** prior "int64 userID" reading; corrected in §4.
 6. SendMessage carries destination device, a Message with type **19**, AuthMessage, optional deadline in microseconds (5 min or 24 h), and Message.field 12 = action envelope. **VERIFIED-LIVE.**
@@ -64,6 +64,24 @@ Live reaction (thumbs-up) on a delivered outgoing RCS text.
 3. Follow-up AckMessages on both GDitto and RCS hosts. **VERIFIED-LIVE.**
 4. f5≈72 B ≪ action-3 text/media (295/333) — consistent with referencing an existing message plus a small reaction code rather than carrying message body/media.
 
+## 0.5 Answers to implementer questions Q-001–Q-011 (2026-10-18)
+
+**Owner direction (binding):** Google-account (Gaia) pairing (§4.2) is the **primary** pairing path, per IMPLEMENTATION-PLAN Phase 1. QR phone-relay pairing (§4.1) is **secondary** and is allowed only if the QR is served out-of-band. The QR image or payload must never appear in MCP tool output or logs, because it contains the long-lived payload keys (§4.1 step 3, §5).
+
+| Q | Topic | Status after review |
+|---|---|---|
+| Q-001 | ConfigVersion (AuthMessage f7) | Values 2026/10/15/4/6 **VERIFIED-LIVE** (GDitto/RCS). Subfield numbers **UNVERIFIED**. Required-on-every-call **UNVERIFIED**. Bugle value **UNVERIFIED** (INFERRED: tracks client build, not network). |
+| Q-002 | RegisterPhoneRelay f4 SPKI field / QR expiry field | Both field numbers **UNVERIFIED** (no QR capture). P-256 SPKI DER is 91 bytes, prefix `30 59 30 13 06 07 2A 86 48 CE 3D 02 01` (standard DER) — use it to locate the field in your own capture. |
+| Q-003 | QR-mode API key and headers | Key-to-mode mapping **UNVERIFIED**. Key attached at [B@1084238] / [B@973804]. `X-Goog-AuthUser` / `SAPISIDHASH` are Gaia-only (OBSERVED); not expected in QR mode (INFERRED). `Origin` enforcement **UNVERIFIED**. |
+| Q-004 | ReceiveMessages element / route-14 container | Element `"1"` is probably JSPB (INFERRED from `format:"jspb"`); field paths, container encoding, encryption state and QR-mode request body **UNVERIFIED**. A spec-team QR capture is deprioritized (Gaia primary). |
+| Q-005 | Browser details f5/f6, non-browser user agent | f5/f6 meaning and requiredness **UNVERIFIED**. No evidence for or against rejection of a non-browser UA. Honest UA with type 1 is acceptable to the spec team. |
+| Q-006 | AI implementer (process) | **APPROVED** by the project owner, with controls (traceability of every constant, no constants from recall, spec-team constant review per phase, DEVLOG attestation). See issue #6. |
+| Q-007 | Hosting / QR in chat (process) | Per-user single-tenant host acceptable under rule 6 (**APPROVED**). QR in tool output **not acceptable**. Gaia primary. See issue #7. |
+| Q-008 | SendMessage / inbound encodings | Message.f12 likely base64 of a binary-protobuf envelope (INFERRED). Envelope f1/f6 are 36-byte values (UUID text form INFERRED). qN known only for 2 / 16 (action 1) / 20 (action 44). Deadline per action **UNVERIFIED** (INFERRED READ → 24 h). f9 meaning **UNVERIFIED**. Inbound field paths **UNVERIFIED**. |
+| Q-009 | Plaintext action layouts | Only the JS-OBSERVED fields in §7 are known. Plaintext encoding INFERRED binary protobuf. All other field numbers **UNVERIFIED**. |
+| Q-010 | Conversation / Message schemas | **UNVERIFIED** (no field-level schema). See OPEN-QUESTIONS §13. |
+| Q-011 | QR lifecycle, keep-alive, activation | Activation 16 → 31 OBSERVED (seen once each live). Keep-alive **UNVERIFIED** (`M4QZzf` 10 s and action 48 INFERRED/UNVERIFIED). RevokeRelayPairing f2 shape **UNVERIFIED**. Phone-initiated unpair **UNVERIFIED**. |
+
 ## 1. Architecture
 
 The browser never talks to the cellular network or to RCS servers. All three parties talk to Google's "Tachyon" instant-messaging relay, and the browser's real counterpart is the Messages app on the phone (OBSERVED: class and log names such as `TachyonClient`, `TachyonAuthProvider`, `BugleBackendService`, and `BugleQrAuthenticationService` appear throughout the bundle).
@@ -88,7 +106,7 @@ Hosts come from page configuration flags (OBSERVED, [H]):
 | Sticker API | `https://sticker-pa.googleapis.com` | `x5y9Oc` |
 | Pairing help/QR base URL | `https://support.google.com/messages/?p=web_computer` | `cZrZ7c` (that this is the QR prefix is INFERRED, §4.1) |
 
-Two public API keys (`AIza...`) are embedded in the page config, and a third is in the bundle. They are sent as `X-Goog-Api-Key` (OBSERVED [B@1084238], [B@973804]). They are not reproduced here; the implementer should read them from the live page at runtime rather than hard-coding them.
+Two public API keys (`AIza...`) are embedded in the page config, and a third is in the bundle. They are sent as `X-Goog-Api-Key` (OBSERVED [B@1084238], [B@973804]). Which key is used in QR mode is **UNVERIFIED** (Q-003). Inspect those offsets in the public bundle to see which config value is wired in. They are not reproduced here; the implementer should read them from the live page at runtime rather than hard-coding them.
 
 All RPC paths have the form `<base>/$rpc/google.internal.communications.instantmessaging.v1.<Service>/<Method>` (OBSERVED [B@947353–972240], [B@1084459–1085631]).
 
@@ -116,11 +134,11 @@ The json+protobuf encoding is Google's positional JSON-array form of protobuf. A
 - `application/json` is parsed as plain JSON.
 - `application/x-protobuf` is parsed as binary. If `Content-Transfer-Encoding: base64` is also present, the body is base64-wrapped binary. The client can ask for base64 with `X-Accept-Content-Transfer-Encoding: base64` [B@966232].
 
-**Streaming.** `ReceiveMessages` is a long-lived streaming POST. The stream yields objects in which key `"1"` carries a serialized response message and key `"2"` carries a status/trailer (OBSERVED [B@948653]). Each element is decoded as one `ReceiveMessages` response. The client also has a fallback mode that polls with `PullMessages`, controlled by `TACHYON_CLIENT_START/STOP_FALLBACK_TO_PULL_MESSAGES` and `PULL_MESSAGES_FALLBACK_OPTIONS` (OBSERVED identifiers).
+**Streaming.** `ReceiveMessages` is a long-lived streaming POST. The stream yields objects in which key `"1"` carries a serialized response message and key `"2"` carries a status/trailer (OBSERVED [B@948653]). Each element is decoded as one `ReceiveMessages` response. Because the `Messaging` client is `format:"jspb"`, element `"1"` is probably a JSPB array (INFERRED). The field path from an element to the route/type field and to the payload is **UNVERIFIED** (Q-004, Q-008). Browser HAR exports do not retain stream bodies, so capture them with the DevTools response view or a local proxy. The client also has a fallback mode that polls with `PullMessages`, controlled by `TACHYON_CLIENT_START/STOP_FALLBACK_TO_PULL_MESSAGES` and `PULL_MESSAGES_FALLBACK_OPTIONS` (OBSERVED identifiers).
 
 **Prewarm.** Before the first `SendMessage`, the client sends a `HEAD` request to the `SendMessage` URL with its auth headers and `content-type: application/x-protobuf`, which appears to warm the CORS preflight and connection (OBSERVED [B@1080825]).
 
-**Headers.** The client sends `X-Goog-Api-Key` on all relay calls. In Google-account mode it also sends cookie-based `Authorization: SAPISIDHASH …` with credentials. OBSERVED: the set `{"SAPISIDHASH","APISIDHASH"}` toggles `withCredentials` [B@948653], and `X-Goog-AuthUser` appears. How SAPISIDHASH is computed is standard Google web practice and is out of scope.
+**Headers.** The client sends `X-Goog-Api-Key` on all relay calls. In Google-account mode it also sends cookie-based `Authorization: SAPISIDHASH …` with credentials. OBSERVED: the set `{"SAPISIDHASH","APISIDHASH"}` toggles `withCredentials` [B@948653], and `X-Goog-AuthUser` appears. How SAPISIDHASH is computed is standard Google web practice and is out of scope. `X-Goog-AuthUser` and `SAPISIDHASH` are Google-account-mode only; they are not expected in QR mode (INFERRED). Whether the server enforces `Origin`/`Referer` for non-browser clients is UNVERIFIED (Q-003).
 
 ## 4. Authentication, tokens, and pairing
 
@@ -130,26 +148,28 @@ The json+protobuf encoding is Google's positional JSON-array form of protobuf. A
 
 2. **RegisterPhoneRelay** (binary protobuf). The request message contains the following fields [B@1086147 and the `vJ` method just after]:
    - Field 1: an auth header submessage. It holds a fresh request ID (a UUID string) and a network/product string, which is `"Bugle"` for QR / phone-relay mode (OBSERVED in JS). Google-account mode uses `"GDitto"` (VERIFIED-LIVE). The RCS identity path uses `"RCS"` (VERIFIED-LIVE).
-   - Field 3: browser details. Its subfields are 1 = the `navigator.userAgent` string; 2 = a browser-type enum, observed mapping Opera→5, Edge/IE→7, Chrome→2, Firefox→3, Safari→4, IE-other→6, other→1 (INFERRED exact mapping); 3 = an OS name string (`"Windows"`, `"Mac"`, `"ChromeOS"`, `"Android"`, `"iOS"`, `"Linux"`, or empty); 5 = a boolean; 6 = a device-kind enum with values 1, 2, or 3.
-   - Field 4: key data. It wraps a submessage whose field 1 is set to `2` and which carries the ECDSA public key encoded as an X.509 SubjectPublicKeyInfo DER structure. The DER structure is built by hand with OIDs 1.2.840.10045.2.1 (EC public key) and 1.2.840.10045.3.1.7 (P-256), around the uncompressed point `0x04‖X‖Y` [B@193920] and [B@719018].
+   - Field 3: browser details. Its subfields are 1 = the `navigator.userAgent` string; 2 = a browser-type enum, observed mapping Opera→5, Edge/IE→7, Chrome→2, Firefox→3, Safari→4, IE-other→6, other→1 (INFERRED exact mapping); 3 = an OS name string (`"Windows"`, `"Mac"`, `"ChromeOS"`, `"Android"`, `"iOS"`, `"Linux"`, or empty); 5 = a boolean; 6 = a device-kind enum with values 1, 2, or 3. The meanings of f5/f6, and whether they are required, are **UNVERIFIED** (Q-005).
+   - Field 4: key data. It wraps a submessage whose field 1 is set to `2` and which carries the ECDSA public key encoded as an X.509 SubjectPublicKeyInfo DER structure. The DER structure is built by hand with OIDs 1.2.840.10045.2.1 (EC public key) and 1.2.840.10045.3.1.7 (P-256), around the uncompressed point `0x04‖X‖Y` [B@193920] and [B@719018]. **The field number holding the SPKI bytes inside that submessage, and whether there is further nesting, are UNVERIFIED** (Q-002). A P-256 SPKI DER is exactly 91 bytes and begins `30 59 30 13 06 07 2A 86 48 CE 3D 02 01`.
    
    The response carries:
    - Field 3: the *pairing key*, an opaque byte string.
    - Field 5: a token submessage. Its field 1 is the bearer auth token bytes, and its field 2 is the time to live. The client converts the TTL with `/1000` into milliseconds, which implies the TTL is in microseconds (INFERRED).
-   - A QR expiry duration, which the client converts the same way [B@1210378].
+   - A QR expiry duration, which the client converts the same way [B@1210378]. Its field number is **UNVERIFIED** (Q-002).
 
-3. **QR payload.** The client builds a small protobuf with field 1 = the pairing key from step 2, field 2 = the AES key, and field 3 = the HMAC key. It base64-encodes this protobuf and displays the URL `<QR base URL>#?c=<base64>` as a QR code [B@1210378]. The base URL is a configured value; the flag `cZrZ7c` = `https://support.google.com/messages/?p=web_computer` is the likely value (INFERRED). Whether the base64 is standard or URL-safe is UNVERIFIED.
+3. **QR payload.** The client builds a small protobuf with field 1 = the pairing key from step 2, field 2 = the AES key, and field 3 = the HMAC key. It base64-encodes this protobuf and displays the URL `<QR base URL>#?c=<base64>` as a QR code [B@1210378]. The base URL is a configured value; the flag `cZrZ7c` = `https://support.google.com/messages/?p=web_computer` is the likely value (INFERRED). Whether the base64 is standard or URL-safe is UNVERIFIED. **Security:** the AES and HMAC keys in this payload are the long-lived payload keys for the whole session (§5). Treat the QR image and URL as secrets: show them only out-of-band, never in tool output, chat transcripts, or logs (Q-007).
 
 4. **Waiting for the phone.** Before or while the QR is shown, the browser opens a `ReceiveMessages` stream using the token from step 2. When the phone scans the code, the browser receives an incoming message whose route/type field (field 2) equals **14**. That message's payload decodes to a container whose field 4 is the "paired" data, with these subfields [B@1210378]:
    - 1 = the phone's device identity, which the client stores as `tachyon_auth_dest_id`.
    - 2 = a new token submessage, with field 1 = token and field 2 = TTL.
    - 3 = the browser's own device identity, which the client stores as `tachyon_auth_desktop_id`.
+
+   Whether the route-14 payload is binary or JSPB, whether it is encrypted at this point, and the QR-mode `ReceiveMessages` request body beyond the AuthMessage are all **UNVERIFIED** (Q-004). In QR mode, the phone identity from f4.1 is INFERRED to be the `SendMessage` f1 destination; send it exactly as received (Q-008).
    
    A device identity is a small message with three fields: (1) a type / registration enum (VERIFIED-LIVE value `16` for the GDitto browser device; other values such as `1` appear for RCS identities), (2) a string source ID (VERIFIED-LIVE length 19 in live captures), and (3) a string network (`"GDitto"`, `"RCS"`, or `"Bugle"`). The earlier reading of field 1 as a large int64 user ID is CONTRADICTED by the live capture.
 
 5. **QR refresh.** If the QR code expires before it is scanned, the client calls `RefreshPhoneRelay`. The call is authenticated with the token from step 2, and its response field 2 holds a new pairing key, from which a new QR code is built [B@1210378].
 
-6. **Revocation.** `RevokeRelayPairing` takes field 2 = the browser device identity (source ID). It is sent on sign-out [B@1084238].
+6. **Revocation.** `RevokeRelayPairing` takes field 2 = the browser device identity (source ID). It is sent on sign-out [B@1084238]. Whether f2 is the full identity message or only the source-ID string is UNVERIFIED. That f1 is the auth header is INFERRED from §4.3 (Q-011).
 
 ### 4.2 Google-account ("Gaia"/"Ditto") pairing: partly OBSERVED
 
@@ -189,6 +209,7 @@ The client also supports pairing through the user's signed-in Google account. In
 - RegisterRefresh response: field 2 is a token submessage (1 = token, 2 = TTL). Field 8 is a UTF-8 string that the client keeps. If field 3 is true, the server rejected the timestamp, and the client retries once using the server's time from field 4 [B@729235].
 - The signature encoding (raw r‖s from WebCrypto versus DER) is UNVERIFIED. WebCrypto natively produces raw 64-byte r‖s, and the bundle includes a DER-conversion helper nearby [B@171157].
 - Retries use exponential backoff with base 2 and an initial delay of 1000 ms.
+- In QR mode, RegisterRefresh is INFERRED to go to the QR relay base (`solGAe`) with network `"Bugle"` and the current token in AuthMessage f6. Not seen live in either mode (Q-011).
 - Persistence keys include `tachyon_auth_token`, `tachyon_auth_token_expiration_time`, `tachyon_auth_token_received_at`, `tachyon_registration_id`, `fcm_token`, `fcm_sender_id`, `bugle_version`, and `bugle_flags` [B@885514].
 - Page config contains `eO0ahb` = 1209600000 ms, which is **14 days**. This matches the publicly known inactivity unpair period (INFERRED meaning). The page config also contains `b9IVuf` = 604800000 ms (7 days), `y9sSNe`/`Q50b0` = 172800000 ms (2 days), and others whose meanings are UNVERIFIED.
 
@@ -228,7 +249,9 @@ Each phone-bound action is built in three layers.
 - Field 2 = Message: f1=messageId (uuid), f2=message type (**19** for all phone-bound RPCs in the capture), f12=serialized action envelope, f23=`[null, qN]` where qN is a small int hint (2 common; 16 with action 1; 20 with action 44).
 - Field 3 = AuthMessage.
 - Field 5 = optional deadline in microseconds (observed 300000000 = 5 min, 86400000000 = 24 h).
-- Field 9 = optional `[bytes len=36]`.
+- Field 9 = optional `[bytes len=36]`. Meaning and when it is present are UNVERIFIED (Q-008).
+
+Encoding notes (Q-008): the capture walker reported f12 as protobuf fields with byte lengths, which fits a **base64 string of a binary-protobuf envelope** inside the JSPB (INFERRED). Envelope f1/f6 are 36-byte values (UUID text form INFERRED). qN values recorded: 2 (most), 16 (action 1), 20 (action 44); any other qN is UNVERIFIED. Deadline per action is UNVERIFIED. As a working rule, READ → 24 h (`864E5` accompanies most READs in JS) and WRITE → 5 min (INFERRED).
 
 The HTTP response is only a small relay ack (`[[null, digits], digits]`), not the action result. Action results arrive on `ReceiveMessages` (stream body was not retained in browser HAR exports).
 
@@ -240,6 +263,7 @@ Responses do not come back on the `SendMessage` HTTP response. They arrive async
 
 - Field 5 holds the (encrypted) response payload, which the client decrypts and parses with the action's response type.
 - Field 9, when true, means **"session preempted"**: another browser tab or client has become the active session. The client then goes inactive with reason `INACTIVE_PREEMPTED_RPC`.
+- The field path from a stream element to this envelope, and to the relay message ID used in `AckMessages`, is **UNVERIFIED**. The ack ID is INFERRED to be the inbound relay Message.f1 UUID, mirroring outbound. Whether the inbound Message type is 19 is UNVERIFIED (Q-008).
 
 ## 7. Action catalog
 
@@ -283,15 +307,23 @@ Action numbers are OBSERVED as the `Gc:` value passed to the client's action dis
 | 52, 53, 56 | READ | Contact list variants: 52 is filtered, 53 is a full list, and 56 is cursor-paged. |
 | 54 | WRITE | Requires a feature flag; takes a conversation and content. Likely **edit message** (UNVERIFIED). |
 
+**Plaintext layouts (Q-009, Q-010).** Only the fields listed above are known, and they are OBSERVED in JS, not verified on the wire, because f5 is encrypted. The plaintext inside f5 is INFERRED to be binary protobuf (unencrypted actions carry clear protobuf in envelope f3). Not recorded, and so UNVERIFIED:
+- the request field numbers for action 1 (count, folder filter and its enum values, cursor), action 2 (conversation ID, cursor, count), and action 9 (destination list);
+- the timestamp field and units for action 16, and the capability field for action 31;
+- the message-content field and the response status enum values for action 3;
+- any Conversation or Message object schema.
+
+Action 17's request is empty (OBSERVED JS; not seen live).
+
 Text send (action 3) and get-or-create conversation (action 9) are VERIFIED-LIVE. Media sending, mark-read, typing, and delete-message are not yet mapped with confidence. See open questions. A parallel RCS-plane SendMessage with message type 36 on jms-us follows Bugle action 3 (text) and action 38 (reaction); role still UNVERIFIED but recurrence is VERIFIED-LIVE. Media send uses action 3 after Copper+Bugle uploads (§9).
 
 ## 8. Incoming event stream and acknowledgements
 
 - The browser keeps one `ReceiveMessages` stream open at a time. Inbound items carry a route or type number. **14** is the pairing event (OBSERVED). Other numbers, such as data events and heartbeats, are UNVERIFIED.
-- When the browser becomes the active client, it picks a new session ID (a UUID), stores it, sends action 16 with that ID as the request ID, and requests capabilities with action 31 [B@1053783]. If a previous session ID exists, the client may resume it.
+- When the browser becomes the active client, it picks a new session ID (a UUID), stores it, sends action 16 with that ID as the request ID, and requests capabilities with action 31 [B@1053783]. If a previous session ID exists, the client may resume it. Each of 16 and 31 was seen once in the live pairing capture. Whether other actions go unanswered without 16 → 31 is UNVERIFIED, so send them first (Q-011).
 - Data updates pushed by the phone, such as new or updated conversations and messages, arrive as encrypted payloads on the stream. Client identifiers `CONVERSATION_UPDATE`, `MESSAGE_UPDATE`, `NEW_RCS_MESSAGE_EVENTS`, and `RCS_MESSAGE_STATUS_UPDATE_EVENTS` exist (OBSERVED names), but their wire mapping is UNVERIFIED.
 - The client acknowledges processed relay messages with `Messaging/AckMessages` (VERIFIED-LIVE): request = `[AuthMessage, repeated messageId uuid strings]` (1–6 IDs per call observed); response = `[[null, digits]]`. Action 17 (application-level ack) was not observed in live captures and remains OBSERVED-from-JS only [B@1053193].
-- Page config contains `M4QZzf` = 10000 ms. A 10-second interval matches a heartbeat or ping cadence (INFERRED).
+- Page config contains `M4QZzf` = 10000 ms. A 10-second interval matches a heartbeat or ping cadence (INFERRED). Action 48 (unencrypted, empty, to explicit targets; seen twice live in the pairing capture) is possibly a ping (UNVERIFIED). How long the server keeps a stream open is UNVERIFIED (Q-011).
 - The inactivity and unfocused-tab states are named `BROWSER_ACTIVE`, `BROWSER_INACTIVE_FROM_TIMEOUT`, and `INACTIVE_LACK_OF_ACTIVITY` (OBSERVED).
 
 ## 9. Media

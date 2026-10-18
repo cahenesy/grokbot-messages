@@ -1,6 +1,6 @@
 # Open Questions (for the implementer's own client)
 
-Updated 2026-10-18. Items already resolved by the spec team's live captures of Google's official web client are summarized in `SPEC.md` (§0.1–§0.4). This file lists **remaining** questions. Each has a concrete test you can run **after your own client pairs** (prefer Google-account / emoji pairing, then self-chat only).
+Updated 2026-10-18 (v0.3: adds §11–§16 from implementer questions Q-001–Q-011; Gaia pairing is the primary path by owner direction). Items already resolved by the spec team's live captures of Google's official web client are summarized in `SPEC.md` (§0.1–§0.4). This file lists **remaining** questions. Each has a concrete test you can run **after your own client pairs** (prefer Google-account / emoji pairing, then self-chat only).
 
 Do not use third-party traffic, other people's numbers, or excluded implementations to answer these. When a test settles a question, notify the spec team via `QUESTIONS.md` so they can revise `SPEC.md`.
 
@@ -83,6 +83,54 @@ Do not use third-party traffic, other people's numbers, or excluded implementati
 **Unknown:** live timing and request signature encoding (raw vs DER ECDSA) for `Registration/RegisterRefresh`. Gaia tokens showed TTL = 24 h; refresh at 90%/95% of lifetime is OBSERVED in JS but not exercised in short sessions.
 
 **Test:** Either wait until ~90% of TTL with a long-lived session, or temporarily lower your client's refresh threshold to force one refresh. Capture RegisterRefresh request/response field layout (no token values in logs — lengths only) and whether the server returns a new TTL and optional server-time correction field.
+
+---
+
+## 11. AuthMessage ConfigVersion subfields (Q-001)
+
+**Unknown:** the field numbers of Year/Month/Day/V1/V2 inside AuthMessage f7; whether f7 is required; the Bugle-mode value.
+
+**Test:** In DevTools on the official client, read any `Registration/*` or `Messaging/*` JSPB body. The positions of 2026/10/15/4/6 inside f7 give the field numbers (index *i* = field *i+1*). Then send one call from your client without f7 and record the status.
+
+---
+
+## 12. SendMessage envelope encoding and inbound paths (Q-008)
+
+**Unknown:** whether Message.f12 is a base64 string (INFERRED) or a nested array; qN and deadline for each action; the meaning of f9; the inbound field path to the response envelope, the ack ID, and the preempted flag.
+
+**Test:** Check the JSPB type of f12 in the official client's `SendMessage`. Log qN and deadline for each action number you send. Capture the stream (not via HAR) and match your 36-character request IDs to inbound elements. Log lengths and paths only.
+
+---
+
+## 13. Plaintext action layouts and object schemas (Q-009, Q-010)
+
+**Unknown:** the field numbers for actions 1, 2, 9, 16, 31 and 3 beyond §7, the action-3 status enum, and the Conversation/Message schemas (ID, name, participants, timestamp units, text, sender, direction, status).
+
+**Test:** Once your session keys work (Gaia, §4.2), decrypt the responses to your own self-chat requests. Plant known values (fixture text, known count, known send time, one reaction) and diff. Report field numbers, types and lengths only, with no real message content.
+
+---
+
+## 14. Stream keep-alive, activation, and phone-initiated unpair (Q-011)
+
+**Unknown:** whether anything must be sent periodically (`M4QZzf` 10 s? action 48?); the server's stream lifetime; whether 16 → 31 is mandatory; what arrives when the phone unpairs.
+
+**Test:** Hold one stream for at least 15 minutes and log when the server closes it. Send action 1 once before 16/31 and record the result. Unpair from the phone's Device pairing screen and log the last items (route/type and lengths).
+
+---
+
+## 15. Browser details f5/f6 and non-browser user agent (Q-005)
+
+**Unknown:** what f5/f6 mean and whether they are required; whether the server or phone treats a non-browser UA differently; which strings the phone's device list shows.
+
+**Test:** After pairing works, pair with an honest UA, type 1 and `Linux`, then change one field at a time. Record the status and what the phone's device list shows.
+
+---
+
+## 16. QR (secondary path) wire details (Q-002, Q-003, Q-004)
+
+**Unknown:** the field number of the SPKI inside RegisterPhoneRelay f4 (search for the 91-byte value with prefix `30 59 30 13 …`); the QR-expiry field; which API key is used in QR mode; whether `Origin` is enforced; the route-14 element layout and encryption state.
+
+**Test:** Lower priority (Gaia is primary). Start QR pairing in the official client (no scan needed for RegisterPhoneRelay), walk the binary request/response, and record field paths, lengths and header names only. Remember that the QR is a secret (SPEC §4.1 step 3).
 
 ---
 
