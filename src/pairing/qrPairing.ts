@@ -35,11 +35,15 @@ export interface PairingStart {
 
 export class QrPairing {
   private abort?: AbortController;
+  /** Increments per start(); an attempt may only save/finish while it is still the current generation. */
+  private generation = 0;
 
   constructor(private readonly d: QrPairingDeps) {}
 
   async start(): Promise<PairingStart> {
     this.abort?.abort();
+    const gen = ++this.generation;
+    const isCurrent = () => gen === this.generation;
     const key = DeviceKey.generate();
     const payload = generatePayloadKeys();
     const res = decodeRegisterPhoneRelayResponse(
@@ -57,8 +61,9 @@ export class QrPairing {
       .waitForPaired(res.token.token, ac.signal)
       .then(async (p) => {
         this.d.onDiagnostic?.({ route14: true, f4Present: true, f4_4Length: p.f4Length });
-        if (this.d.page.status() !== "waiting") {
-          // Link expired or was replaced before the phone confirmed: revoke rather than keep (A-017).
+        if (!isCurrent() || ac.signal.aborted || this.d.page.status() !== "waiting") {
+          // Superseded by a newer attempt, or its link expired/died before the phone confirmed:
+          // revoke rather than keep (A-017), and never touch the newer attempt's page state.
           await this.d.revoke?.(p);
           return;
         }
@@ -73,9 +78,10 @@ export class QrPairing {
           phone: p.phone,
           browser: p.browser,
         });
-        this.d.page.setStatus("paired");
+        if (isCurrent()) this.d.page.setStatus("paired");
       })
       .catch((e) => {
+        if (!isCurrent()) return; // a stale attempt must not change the current attempt's status
         if (ac.signal.aborted) this.d.page.setStatus("expired");
         else {
           this.d.onError?.(e);

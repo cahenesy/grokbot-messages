@@ -105,3 +105,33 @@ describe("late pairing is revoked (A-017)", () => {
     expect(saved).toHaveLength(0);
   });
 });
+
+describe("superseded attempts (security review)", () => {
+  it("a stale attempt's late confirmation is revoked and does not save or mark the new attempt paired", async () => {
+    page = new PairingPageServer();
+    await page.start();
+    const releases: Array<(p: PairedData) => void> = [];
+    const saved: unknown[] = [];
+    const revoked: PairedData[] = [];
+    const relay = new PbWriter().bytes(3, new Uint8Array([1])).message(5, new PbWriter().bytes(1, new Uint8Array([9])).varint(2, 1n)).finish();
+    const q = new QrPairing({
+      page,
+      registerPhoneRelay: async () => relay,
+      waitForPaired: () => new Promise((r) => releases.push(r)),
+      save: async (s) => void saved.push(s),
+      revoke: async (p) => void revoked.push(p),
+      userAgent: "t",
+    });
+    await q.start(); // attempt A
+    await q.start(); // attempt B supersedes A
+    releases[0]!(pairedFromRelay({ type: 14, envelope: route14Payload() })!); // A's phone confirms late
+    await new Promise((r) => setTimeout(r, 10));
+    expect(saved).toHaveLength(0);
+    expect(revoked).toHaveLength(1);
+    expect(q.status()).toBe("waiting"); // B untouched
+    releases[1]!(pairedFromRelay({ type: 14, envelope: route14Payload() })!); // B confirms
+    await new Promise((r) => setTimeout(r, 10));
+    expect(saved).toHaveLength(1);
+    expect(q.status()).toBe("paired");
+  });
+});
