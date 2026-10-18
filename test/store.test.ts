@@ -16,3 +16,18 @@ describe("SessionStore", () => {
     await expect(new SessionStore(path, "wrong passphrase 123456").load()).rejects.toThrow(/decrypted/);
   });
 });
+
+import { requireEnv } from "../src/session/store.js";
+
+describe("requireEnv", () => {
+  it("fails closed on unset or unexpanded placeholders", () => {
+    expect(() => requireEnv({}, "X")).toThrow(/not set/);
+    expect(() => requireEnv({ X: "${GOOGLE_MESSAGES_SESSION_KEY}" }, "X")).toThrow(/placeholder/);
+    expect(() => requireEnv({ X: "$GOOGLE_MESSAGES_SESSION_KEY" }, "X")).toThrow(/placeholder/);
+    expect(requireEnv({ X: " real-value " }, "X")).toBe("real-value");
+  });
+
+  it("rejects a repetitive passphrase", () => {
+    expect(() => new SessionStore("/tmp/x", "aaaaaaaaaaaaaaaaaaaa")).toThrow(/repetitive/);
+  });
+});

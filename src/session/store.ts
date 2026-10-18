@@ -36,14 +36,11 @@ function deriveKey(passphrase: string, salt: Buffer, k = SCRYPT): Buffer {
 export class SessionStore {
   constructor(private readonly path: string, private readonly passphrase: string) {
     if (passphrase.length < 16) throw new Error("session passphrase must be at least 16 characters");
+    if (new Set(passphrase).size < 8) throw new Error("session passphrase is too repetitive");
   }
 
   static fromEnv(env: NodeJS.ProcessEnv = process.env): SessionStore {
-    const path = env.GOOGLE_MESSAGES_SESSION_PATH;
-    const key = env.GOOGLE_MESSAGES_SESSION_KEY;
-    if (!path) throw new Error("GOOGLE_MESSAGES_SESSION_PATH is not set");
-    if (!key) throw new Error("GOOGLE_MESSAGES_SESSION_KEY is not set");
-    return new SessionStore(path, key);
+    return new SessionStore(requireEnv(env, "GOOGLE_MESSAGES_SESSION_PATH"), requireEnv(env, "GOOGLE_MESSAGES_SESSION_KEY"));
   }
 
   async load(): Promise<SessionData | undefined> {
@@ -87,4 +84,16 @@ export class SessionStore {
     await writeFile(tmp, JSON.stringify(env), { mode: 0o600, flag: "wx" });
     await rename(tmp, this.path);
   }
+}
+
+/**
+ * Reads a required variable, failing closed when it is unset, empty, or still an
+ * unexpanded `${VAR}` placeholder (a host that does not substitute plugin variables
+ * would otherwise hand us the literal placeholder as a passphrase).
+ */
+export function requireEnv(env: NodeJS.ProcessEnv, name: string): string {
+  const v = env[name]?.trim();
+  if (!v) throw new Error(`${name} is not set`);
+  if (/\$\{[^}]*\}|\$[A-Z_][A-Z0-9_]*$/.test(v)) throw new Error(`${name} looks like an unexpanded placeholder; set it in the plugin configuration`);
+  return v;
 }

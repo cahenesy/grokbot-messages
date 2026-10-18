@@ -10,7 +10,7 @@ import { BROWSER_TYPE_OTHER, decodeRegisterPhoneRelayResponse, encodeRegisterPho
 import { receiveMessages } from "../transport/receive.js";
 import { SpecGapError } from "../protocol/specGaps.js";
 import { expiresAtMs, refreshAtMs } from "../session/schedule.js";
-import { SessionStore } from "../session/store.js";
+import { SessionStore, requireEnv } from "../session/store.js";
 import { callBinary } from "../transport/relay.js";
 
 const VERSION = "0.0.1";
@@ -20,6 +20,11 @@ const text = (t: string) => ({ content: [{ type: "text" as const, text: t }] });
 function failure(e: unknown) {
   const msg = e instanceof SpecGapError ? `${e.message}. This build cannot complete the step until the spec is revised.` : String((e as Error)?.message ?? e);
   return { ...text(msg), isError: true };
+}
+
+/** Unset is allowed (transport reports spec gap Q-003); a literal placeholder is not. */
+function optionalEnv(name: string): string | undefined {
+  return process.env[name]?.trim() ? requireEnv(process.env, name) : undefined;
 }
 
 const server = new McpServer({ name: "grokbot-messages", version: VERSION });
@@ -63,7 +68,7 @@ server.registerTool(
         spkiDer: key.spki(),
       });
       const res = decodeRegisterPhoneRelayResponse(
-        await callBinary({ apiKey: process.env.GOOGLE_MESSAGES_API_KEY }, "Pairing", "RegisterPhoneRelay", req),
+        await callBinary({ apiKey: optionalEnv("GOOGLE_MESSAGES_API_KEY") }, "Pairing", "RegisterPhoneRelay", req),
       );
       await store.save({
         version: 1,
@@ -103,7 +108,7 @@ server.registerTool(
       const timer = setTimeout(() => ac.abort(), 120_000);
       try {
         // ReceiveMessages request layout is Q-004; receiveMessages throws SpecGapError until it is known.
-        for await (const el of receiveMessages({ apiKey: process.env.GOOGLE_MESSAGES_API_KEY, signal: ac.signal })) {
+        for await (const el of receiveMessages({ apiKey: optionalEnv("GOOGLE_MESSAGES_API_KEY"), signal: ac.signal })) {
           const paired = el.response === undefined ? undefined : pairedFromStreamElement(el.response);
           if (!paired) continue;
           await store.save({
