@@ -42,8 +42,13 @@ Never commit real values. The session file is encrypted with AES-256-GCM using a
 
 - `get_session_status` — whether paired and when the token expires; never returns secrets.
 - `start_pairing` — registers with the relay and returns a QR code to scan in Google Messages → Device pairing → QR code scanner.
+- `complete_pairing` — waits for the phone to confirm the scan and stores the paired session.
 
-Sending messages will require explicit per-message user confirmation.
+Sending messages will require explicit per-message user confirmation: a send is first prepared, which returns a one-time code bound to the exact text, and only a matching confirm call executes it (`src/mcp/confirm.ts`).
+
+## Installing as a plugin
+
+The repo is a Cursor-format plugin (`.cursor-plugin/plugin.json` + `mcp.json`), which Grok Bot's marketplace uses. The MCP server runs via `npx -y github:cahenesy/grokbot-messages`; set the plugin variables in the host's plugin configuration.
 
 ## Development
 
