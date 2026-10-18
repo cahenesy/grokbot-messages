@@ -2,7 +2,8 @@
 
 import { SpecGapError } from "../protocol/specGaps.js";
 
-export const RELAY_QR_BASE = "https://instantmessaging-pa.googleapis.com"; // flag solGAe
+export const RELAY_QR_BASE = "https://instantmessaging-pa.googleapis.com"; // flag solGAe (§2)
+export const RELAY_GAIA_BASE = "https://instantmessaging-pa.clients6.google.com"; // flag tkZp9e (§2, §0.1 item 1)
 const RPC_PREFIX = "/$rpc/google.internal.communications.instantmessaging.v1.";
 
 export type Service = "Pairing" | "Messaging" | "Registration";
@@ -19,6 +20,10 @@ export interface RelayOptions {
   /** X-Goog-Api-Key; which embedded key applies is Q-003. */
   apiKey?: string;
   fetchImpl?: typeof fetch;
+  /** Per-call extra headers, e.g. cookie-mode auth from session/googleAuth.ts (never logged). */
+  headers?: () => Record<string, string>;
+  /** Receives Set-Cookie lines so refreshed cookies can be persisted (A-012). */
+  onSetCookie?: (lines: string[]) => void;
 }
 
 export function rpcUrl(base: string, service: Service, method: string): string {
@@ -33,9 +38,12 @@ async function call(o: RelayOptions, service: Service, method: string, body: Bod
       "Content-Type": contentType,
       "X-User-Agent": "grpc-web-javascript/0.1",
       "X-Goog-Api-Key": o.apiKey,
+      ...o.headers?.(),
     },
     body,
   });
+  const setCookie = res.headers.getSetCookie?.() ?? [];
+  if (setCookie.length) o.onSetCookie?.(setCookie);
   if (!res.ok) {
     const grpc = res.headers.get("grpc-status");
     throw new RelayError(res.status, grpc === null ? undefined : Number(grpc), `${service}/${method} failed: HTTP ${res.status}`);

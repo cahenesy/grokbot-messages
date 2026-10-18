@@ -36,6 +36,7 @@ export async function* receiveMessages(o: ReceiveOptions): AsyncGenerator<Stream
       "Content-Type": "application/json+protobuf",
       "X-User-Agent": "grpc-web-javascript/0.1",
       "X-Goog-Api-Key": o.apiKey,
+      ...o.headers?.(),
     },
     body: JSON.stringify(o.body),
     signal: o.signal,
