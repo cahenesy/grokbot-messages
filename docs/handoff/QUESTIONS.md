@@ -474,3 +474,11 @@ _Protocol facts only, from the spec team's handoff, Google's public web client b
 - **Parts:** oneof 2–6; text = f2.f1; media f3 with a content-type enum; location f5; rich card f6.
 - **Push updates:** inbound action-16 envelopes with request ID = session ID; oneof 2–16: f2 conversations, f3 messages, f4 typing, f6 alerts, **f7 ack request → action 17**, f14 Gaia unpair, f15 QR migration. Stale-update drop by envelope f3 per entity ID; placeholder rule recorded.
 - **Docs:** SPEC v0.5 §5, §6.1, §7 (new §7.1 and §7.2) and §8, plus OPEN-QUESTIONS §2 and §13, updated on PR #18's branch.
+
+### Review of cbf6d4a / A-020 — 2026-10-18 (routine run, ~13:05 EDT; comment https://github.com/cahenesy/grokbot-messages/issues/10#issuecomment-6252674347)
+
+- **Hygiene:** clean (noreply author, no AI trailers, no secrets, 555/fixture data, kind-only diagnostics, no dependency changes, no send path). The A-018/A-019 implementation matches the answers. DEVLOG records reliance on server-side expiry for late QR scans.
+- **Medium, deadline:** action 17 is class `ACK` with a 24 h deadline [B@1053193]; the code sends it with 5 min. Classes READ/WRITE/ACK aren't on the wire, and WRITE requests are serialized one at a time [B@1047962]. Explicit 24 h for 31/1/2/17. 16, 3 and 23 pass no explicit deadline (default UNVERIFIED).
+- **Medium, stale/placeholder:** `StaleUpdateFilter` isn't wired in. The check runs per element (`conv_<id>`, `msg_<id>`; also `settings`, `qr_migration`) against envelope f3, strict `<`, LRU 1000 [B@1052571], [B@1054822]. The placeholder check runs after the stale check, so a skipped placeholder still advances the timestamp.
+- **Low, routing:** with no session, a 16 envelope is ignored unless it matches a pending request. With a session, it's a push if its ID is the session ID or a pending ID. Otherwise only the browser-active alert (f6 type 2, relay f7 not > 0) is handled; the rest is ignored [B@1069100–1072950], [B@1051909]. "invalid MAC" moves the client into an error state [B@1069835]. A non-empty envelope f11 is a QR-migration notice that stops processing unless the action is 1 [B@1069426], [B@1052142].
+- **Docs:** SPEC v0.5 §8 is updated on PR #18's branch (commit 90751f8).
