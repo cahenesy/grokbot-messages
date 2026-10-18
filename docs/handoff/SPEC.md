@@ -1,6 +1,6 @@
 # Google Messages for Web Protocol: Clean-Room Behavioral Specification
 
-Version 0.5 (handoff), 2026-10-18. Clean-room behavioral specification for the implementation team. v0.3 added the spec-team answers to implementer questions Q-001–Q-011 (§0.5). v0.4 added the Google web session header construction (A-012, §3), the single-use pairing page direction (revised A-012, §4.1), and the SignInGaia structure and BotGuard findings (A-013 part 1, §4.2). v0.5 adds the page-config layout (A-003 follow-up, §2), the Google-account pairing rounds, HKDF table, rev1 ordering, destination choice and DeviceId correction (A-013 part 2, §4.2), the verification emoji (A-015, §4.2.3 and `EMOJI-TABLES.md`), and corrections to the `SendMessage` destination and the inbound envelope (A-015, §6).
+Version 0.5 (handoff), 2026-10-18. Clean-room behavioral specification for the implementation team. v0.3 added the spec-team answers to implementer questions Q-001–Q-011 (§0.5). v0.4 added the Google web session header construction (A-012, §3), the single-use pairing page direction (revised A-012, §4.1), and the SignInGaia structure and BotGuard findings (A-013 part 1, §4.2). v0.5 adds the page-config layout (A-003 follow-up, §2), the Google-account pairing rounds, HKDF table, rev1 ordering, destination choice and DeviceId correction (A-013 part 2, §4.2), the verification emoji (A-015, §4.2.3 and `EMOJI-TABLES.md`), corrections to the `SendMessage` destination and the inbound envelope (A-015, §6), the page-fetch `User-Agent` rule (A-003 part 3, §2), and the `ReceiveMessages` response structure (A-016, §3, §6.2, §8).
 
 ## 0. How to read this document
 
@@ -117,6 +117,13 @@ Two public API keys (`AIza...`) are embedded in the page config, and a third is 
 - The client re-fetches the same config from `<app base>/config?buildLabel=<label>` every 15 minutes, stripping a `)]}'` prefix [B@805721]. Whether that works without cookies is UNVERIFIED.
 - Never log const values. The official client logs `Setting const <name> to <value>` [B@808932]; don't copy that.
 
+**Page fetch `User-Agent` (A-003 part 3, VERIFIED-LIVE 2026-10-18).** An unauthenticated `GET https://messages.google.com/web/authentication` returns **HTTP 400** unless the `User-Agent` is a full, current, mainstream desktop browser string. Current desktop Chrome and Firefox UAs got 200 with `MW_CONFIG` and `A16fYe` present. Every non-browser or partial string tried got 400, including the connector's own name, `Mozilla/5.0 (compatible; …)`, and a bare `Chrome/<version>` token. `Accept` and `Accept-Language` made no difference. A very old Chrome UA (major version 60) got **200 without `MW_CONFIG`** (INFERRED: an unsupported-browser page).
+- **Spec-team ruling (owner-delegated):** for this public, unauthenticated page and config fetch only, the connector may send one fixed, current desktop browser `User-Agent` string. Keep it in a single constant that cites A-003 part 3, and allow an optional override setting for self-hosters.
+- Treat "200 without `MW_CONFIG`" as a failure, the same as a 400. Fail with a clear error that names the likely cause (an outdated pinned UA), and never retry in a loop.
+- `${GOOGLE_MESSAGES_API_KEY}` is an optional override, not a required setting.
+- Relay calls keep `X-User-Agent: grpc-web-javascript/0.1` (OBSERVED) and the runtime's default HTTP `User-Agent`, unless a live test shows a refusal tied to the UA (OPEN-QUESTIONS §21).
+- **Owner review item:** this is a product/ToS-risk item. It goes on the pre-listing owner review next to the "undocumented API" notice (§4.2).
+
 All RPC paths have the form `<base>/$rpc/google.internal.communications.instantmessaging.v1.<Service>/<Method>` (OBSERVED [B@947353–972240], [B@1084459–1085631]).
 
 | Service | Methods present in the client |
@@ -143,7 +150,7 @@ The json+protobuf encoding is Google's positional JSON-array form of protobuf. A
 - `application/json` is parsed as plain JSON.
 - `application/x-protobuf` is parsed as binary. If `Content-Transfer-Encoding: base64` is also present, the body is base64-wrapped binary. The client can ask for base64 with `X-Accept-Content-Transfer-Encoding: base64` [B@966232].
 
-**Streaming.** `ReceiveMessages` is a long-lived streaming POST. The stream yields objects in which key `"1"` carries a serialized response message and key `"2"` carries a status/trailer (OBSERVED [B@948653]). Each element is decoded as one `ReceiveMessages` response. Because the `Messaging` client is `format:"jspb"`, element `"1"` is probably a JSPB array (INFERRED). The field path from an element to the route/type field and to the payload is **UNVERIFIED** (Q-004, Q-008). Browser HAR exports do not retain stream bodies, so capture them with the DevTools response view or a local proxy. The client also has a fallback mode that polls with `PullMessages`, controlled by `TACHYON_CLIENT_START/STOP_FALLBACK_TO_PULL_MESSAGES` and `PULL_MESSAGES_FALLBACK_OPTIONS` (OBSERVED identifiers).
+**Streaming.** `ReceiveMessages` is a long-lived streaming POST. The stream yields objects in which key `"1"` carries a serialized response message and key `"2"` carries a status/trailer (OBSERVED [B@948653]). Each element's `"1"` is deserialized as one `ReceiveMessages` **response** (not as a relay message) [B@732839], with JSPB as the format (the `Messaging` client is `format:"jspb"`). Its layout is in §6.2 (A-016). Browser HAR exports do not retain stream bodies, so capture them with the DevTools response view or a local proxy. The client also has a fallback mode that polls with `PullMessages`, controlled by `TACHYON_CLIENT_START/STOP_FALLBACK_TO_PULL_MESSAGES` and `PULL_MESSAGES_FALLBACK_OPTIONS` (OBSERVED identifiers).
 
 **Prewarm.** Before the first `SendMessage`, the client sends a `HEAD` request to the `SendMessage` URL with its auth headers and `content-type: application/x-protobuf`, which appears to warm the CORS preflight and connection (OBSERVED [B@1080825]).
 
@@ -374,7 +381,14 @@ The HTTP response is only a small relay ack (`[[null, digits], digits]`), not th
 
 Responses do not come back on the `SendMessage` HTTP response. They arrive asynchronously on the `ReceiveMessages` stream and are matched to requests by envelope f1, the request ID [B@1045827], [B@1048078] (OBSERVED, A-015).
 
-- **Relay message:** the client handles an inbound relay message only when its **f2 = 19** [B@1069061]. Its **f12** = the response envelope bytes, its **f1** = its own ID (logged as "tachyonId"; INFERRED to be the `AckMessages` ID), and its f7 = a time value used for clock skew.
+- **`ReceiveMessages` response** (A-016, OBSERVED [B@732839], [B@732854]): **f1** = a small header submessage (no accessors in this bundle), then a **oneof over fields 2–7**, so each stream element carries **at most one** relay message:
+  - **f2** = the relay message (below). The client logs `Received message <relay f1>` [B@740117].
+  - **f3** = an empty marker. The client only records a timestamp for it [B@740040]. INFERRED to be a server heartbeat.
+  - **f4 / f5** = batch start / batch end. The client buffers relay messages from an f4 element until the next f5 element and then emits them together [B@737538], [B@737634], [B@116451]. The mechanism is OBSERVED and the meaning INFERRED. Processing relay messages in arrival order and treating f4/f5 as no-ops is correct.
+  - **f6, f7**: no reader found. UNVERIFIED, so ignore them.
+  - Any element resets the client's stream-idle timer, and the timer firing triggers a rebind [B@739898]. The timeout comes from client config (UNVERIFIED value).
+- **Relay message:** the client handles an inbound relay message only when its **f2 = 19** [B@1069061]. Its **f12** = the response envelope bytes, its **f1** = its own ID (logged as "tachyonId"; INFERRED to be the `AckMessages` ID), its **f3** = a timestamp (int64 µs, INFERRED unit) that the client keeps as "last seen" for the next stream start [B@737471], [B@735540], and its f7 = a time value used for clock skew.
+- **Dedup:** when a client flag enables it, the client drops relay messages whose f1 it has already seen, using a 200-entry LRU [B@737044], [B@737379]. Doing the same is cheap and safe.
 - **Response envelope** (schema [B@368936]). This is a different message from the outbound envelope:
 
 | Field | Meaning |
@@ -390,7 +404,7 @@ Responses do not come back on the `SendMessage` HTTP response. They arrive async
 | 10, 11 | bytes. f11 is decrypted separately (an account-migration notice, INFERRED) |
 
 - **Plaintext or encrypted:** for actions **44, 45 and 47** (and action 16 when its plaintext type is 14) the client reads the payload in the clear from **f5**. For everything else it decrypts **f8** and writes the result into f5 before parsing [B@1069498], [B@1069778]. This corrects the earlier note that f5 holds the encrypted response.
-- **`ReceiveMessages` request** [B@739513]: f1 = AuthMessage and f4 = {f1 = start timestamp µs}. The start timestamp is the last seen value − 1, or else (server time − 60 s) × 1000 [B@735540].
+- **`ReceiveMessages` request** [B@739513]: f1 = AuthMessage and f4 = {f1 = start timestamp µs}. The start timestamp is the last seen relay f3 − 1, or else (server time − 60 s) × 1000 [B@735540], [B@737471].
 - **AuthMessage** [B@729780], [B@1094378]: f1 = request ID, f3 = network (`"GDitto"` in Google-account mode), f6 = token bytes (from SignInGaia response f4.f1), f7 = config. Before a call with the default option, the client refreshes the token once 95 % of its lifetime has passed [B@728364].
 
 ## 7. Action catalog
@@ -447,7 +461,7 @@ Text send (action 3) and get-or-create conversation (action 9) are VERIFIED-LIVE
 
 ## 8. Incoming event stream and acknowledgements
 
-- The browser keeps one `ReceiveMessages` stream open at a time. Inbound items carry a route or type number. **14** is the pairing event (OBSERVED). Other numbers, such as data events and heartbeats, are UNVERIFIED.
+- The browser keeps one `ReceiveMessages` stream open at a time. Inbound relay messages carry a route or type number in f2. **14** is the QR pairing event and **19** carries a phone response envelope (OBSERVED). Heartbeats are not relay messages: they are the `ReceiveMessages` response f3 marker (§6.2, A-016, INFERRED meaning). Other route numbers are UNVERIFIED.
 - When the browser becomes the active client, it picks a new session ID (a UUID), stores it, sends action 16 with that ID as the request ID, and requests capabilities with action 31 [B@1053783]. If a previous session ID exists, the client may resume it. Each of 16 and 31 was seen once in the live pairing capture. Whether other actions go unanswered without 16 → 31 is UNVERIFIED, so send them first (Q-011).
 - Data updates pushed by the phone, such as new or updated conversations and messages, arrive as encrypted payloads on the stream. Client identifiers `CONVERSATION_UPDATE`, `MESSAGE_UPDATE`, `NEW_RCS_MESSAGE_EVENTS`, and `RCS_MESSAGE_STATUS_UPDATE_EVENTS` exist (OBSERVED names), but their wire mapping is UNVERIFIED.
 - The client acknowledges processed relay messages with `Messaging/AckMessages` (VERIFIED-LIVE): request = `[AuthMessage, repeated messageId uuid strings]` (1–6 IDs per call observed); response = `[[null, digits]]`. Action 17 (application-level ack) was not observed in live captures and remains OBSERVED-from-JS only [B@1053193].

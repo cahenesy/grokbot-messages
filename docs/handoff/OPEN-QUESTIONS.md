@@ -167,6 +167,14 @@ Do not use third-party traffic, other people's numbers, or excluded implementati
 
 **Test:** In your own paired session, record only the JSPB type of `SendMessage` f9 (string or array) and its decoded length. On your first end-to-end attempt, compare the emoji your client computes with the one the phone shows, and record only match or no match. Record only whether round-2 f8 is present and its length. Never record keys, tokens, account emails or registration IDs.
 
+## 21. Stream element kinds and relay-call user agent (A-016, A-003 part 3)
+
+**Unknown:**
+- what the `ReceiveMessages` response f1 header holds, the heartbeat (f3) interval, the client idle-timer value, and whether the f4/f5 batch markers or the unread f6/f7 members ever appear;
+- whether relay calls (`instantmessaging-pa*`) refuse a non-browser HTTP `User-Agent`, as the public page does.
+
+**Test:** On your own paired session, log only the set oneof case number of each stream element, the relay f2 route, and the time between f3 markers. Never log contents. Make one relay call with the runtime's default UA and, only if it is refused, one with the pinned browser UA. Record only the status codes.
+
 ---
 
 ## Still useful but lower priority

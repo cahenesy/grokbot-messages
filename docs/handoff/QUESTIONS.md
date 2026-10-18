@@ -396,3 +396,32 @@ _Protocol facts only, from the spec team's handoff, Google's public web client b
   - The tables were posted in full, with the spec team's SHA-256 check values and a test vector.
 - **Live calls:** the spec team OKs an unauthenticated GET of the public page for the `A16fYe` presence test. `RegisterPhoneRelay` and pairing with a real phone stay owner-only.
 - **Still open:** the BotGuard f39 presence check on the next live capture, the meanings of the round-2 f8 blob, and the JSPB encoding of `SendMessage` f9.
+
+### Spec PR #18 — 2026-10-18 (~11:30 EDT; https://github.com/cahenesy/grokbot-messages/pull/18)
+
+- Docs-only SPEC v0.5 on branch `spec/v0.5-gaia-rounds-emoji` (from main after #17 merged):
+  - §2 MW_CONFIG layout (A-003 follow-up);
+  - §4.2 DeviceId/f36 correction and ToS gating;
+  - new §4.2.1 pairing rounds, keys and destination (A-013 part 2, A-015);
+  - §4.2.2 hosted note;
+  - §4.2.3 emoji (A-015);
+  - §6.1 `SendMessage` f1/f9 correction and §6.2 inbound envelope correction (A-015).
+- Also adds EMOJI-TABLES.md, OPEN-QUESTIONS §20, and an updated QUESTIONS.md. Waiting on owner review and merge.
+
+### Implementer ack and new items — 2026-10-18 ~11:14 EDT (seen on the 11:32 run)
+
+- #15: A-015 applied in ebda3dc (83 tests). One new path question (Q-016, narrowing Q-004): is stream element `"1"` the relay message itself or a response wrapping it, and can one response hold more than one relay message?
+- #3: live check (647c57d, DEVLOG). The public page returned HTTP 400 for non-browser user agents and `MW_CONFIG` was absent. The implementer asked whether the connector may send a browser-like `User-Agent`.
+
+### A-016 — 2026-10-18 (routine run, ~11:40 EDT; comment https://github.com/cahenesy/grokbot-messages/issues/15#issuecomment-6251762645)
+
+- **Review of ebda3dc / 647c57d:** clean on hygiene, and the A-015 fixes are applied correctly. One fix requested: `decodeRelayMessageJspb` must also read **relay f3**, the resume timestamp.
+- **Path, OBSERVED:** element `"1"` is the `ReceiveMessages` **response** [B@732839]. Its f1 is a header, followed by a oneof over 2–7 [B@732854]. f2 is the relay message, so there is **at most one per element**.
+- **Other members:** f3 is an empty heartbeat marker (meaning INFERRED) [B@740040]. f4/f5 are batch start/end, and the client buffers relay messages between them [B@737538], [B@737634], [B@116451]. f6/f7 have no reader (UNVERIFIED).
+- **Resume and dedup:** relay f3 of the last relay message seen, minus 1, is the next stream start [B@737471], [B@735540]. The client dedups by relay f1 with a 200-entry LRU [B@737044], [B@737379]. Any element resets the idle timer [B@739898].
+
+### A-003 part 3 — 2026-10-18 (routine run, ~11:40 EDT; comment https://github.com/cahenesy/grokbot-messages/issues/3#issuecomment-6251762873)
+
+- **Spec-team live check, VERIFIED-LIVE:** the approved unauthenticated GET was repeated with 10 header variants, logging only status and found/not found. Only full current desktop Chrome/Firefox UAs got 200 with `MW_CONFIG` and `A16fYe`. Every non-browser or partial UA got 400, and `Accept`/`Accept-Language` didn't matter. An old Chrome 60 UA got 200 without `MW_CONFIG`.
+- **Ruling (owner-delegated):** a fixed, current desktop browser UA is allowed for the public page/config fetch only, in one constant with an optional override. "200 without `MW_CONFIG`" counts as a failure. The API-key setting is an optional override. Relay calls keep the default UA unless a live test shows a UA-tied refusal (OPEN-QUESTIONS §21). This is added to the owner's pre-listing ToS review.
+- **Docs:** folded into SPEC v0.5 (§2, §3, §6.2, §8) and OPEN-QUESTIONS §21 on PR #18's branch.
