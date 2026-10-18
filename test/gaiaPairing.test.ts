@@ -5,7 +5,8 @@ import {
   startClientHandshake, unwrapUkey2, wrapUkey2,
 } from "../src/crypto/ukey2.js";
 import {
-  GAIA_PAIRING_ROUND1_ACTION, GAIA_PAIRING_ROUND2_ACTION, GaiaPairingError, decodeRound1Response, decodeRound2Response, encodePairingRequest,
+  GAIA_PAIRING_ROUND1_ACTION, GAIA_PAIRING_ROUND2_ACTION, GOOGLE_UNDOCUMENTED_API_NOTICE, GaiaPairingError, decodeRound1Response, decodeRound2Response,
+  encodeRound1Request, encodeRound2Request,
 } from "../src/protocol/gaiaPairing.js";
 import { PbWriter, decode, getBytes, getMessage, getString, getVarint } from "../src/protocol/protobuf.js";
 
@@ -39,7 +40,7 @@ function phone(clientInitWrapped: Uint8Array) {
 describe("Google-account pairing rounds (A-013 part 2)", () => {
   it("round 1 request layout: f1 session, f2 browser, f3 time, f4 ClientInit wrapper, f5 = 1, f6 = 1", () => {
     const h = startClientHandshake();
-    const req = decode(encodePairingRequest({ sessionId: SID, browser, timeMs: 1760000000000n, ukey2: h.clientInit }));
+    const req = decode(encodeRound1Request({ sessionId: SID, browser, timeMs: 1760000000000n, ukey2: h.clientInit }));
     expect(getString(req, 1)).toBe(SID);
     expect(getString(getMessage(req, 2)!, 1)).toBe("grokbot-messages/test");
     expect(getVarint(req, 3)).toBe(1760000000000n);
@@ -49,6 +50,24 @@ describe("Google-account pairing rounds (A-013 part 2)", () => {
     expect(getVarint(req, 7)).toBeUndefined();
     expect(getString(req, 8)).toBeUndefined();
     expect([GAIA_PAIRING_ROUND1_ACTION, GAIA_PAIRING_ROUND2_ACTION]).toEqual([44, 45]);
+  });
+
+  it("round 2 carries only f1–f4 and f8; notice unless round-1 f9 is negative (A-015)", () => {
+    const h = startClientHandshake();
+    const i = { sessionId: SID, browser, timeMs: 5n, ukey2: h.clientFinish };
+    const r = decode(encodeRound2Request(i, { versionF9: 0n }));
+    expect(r.map((x) => x.field).sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 8]);
+    expect(getString(r, 8)).toBe(GOOGLE_UNDOCUMENTED_API_NOTICE);
+    expect(getString(decode(encodeRound2Request(i, { versionF9: -1n })), 8)).toBeUndefined();
+  });
+
+  it("decodes a negative f9 as signed, and requires f3 = true", () => {
+    const h = startClientHandshake();
+    const p = phone(h.clientInit);
+    const neg = new PbWriter().varint(1, 0).varint(3, 1).string(4, SID).bytes(5, p.serverInit).varint(9, -1n).finish();
+    expect(decodeRound1Response(neg, SID).versionF9).toBe(-1n);
+    const noF3 = new PbWriter().varint(1, 0).string(4, SID).bytes(5, p.serverInit).finish();
+    expect(() => decodeRound1Response(noF3, SID)).toThrow(/f3/);
   });
 
   it("full handshake: both sides derive the same payload keys (rev1 and f7 = 0)", () => {

@@ -18,6 +18,9 @@ export const GOOGLE_UNDOCUMENTED_API_NOTICE =
 /** Maximum accepted round-1 response version values f6/f7/f9 [B@1101066–1101200]. */
 export const MAX_VERSIONS = { f6: 1n, f7: 1n, f9: 0n } as const;
 
+// Round 1 is sent to every candidate; round 2 only to the responder (via SendMessage f9 targets).
+export const GAIA_PAIRING_QN = { round1: 20, round2: 2 } as const; // [B@1079931] (A-015 item 1)
+
 export interface PairingRequestInput {
   /** f1: fresh lower-cased random ID per attempt [B@1111848]. */
   sessionId: string;
@@ -27,21 +30,28 @@ export interface PairingRequestInput {
   timeMs: bigint;
   /** f4: serialized UKEY2 wrapper message {f1 type, f2 data} [B@384896–384988]. */
   ukey2: Uint8Array;
-  /** f8: notice string; second request only, when the server version value is 0. */
-  notice?: string;
 }
 
-/** Pairing request [B@385305]: f1, f2, f3, f4, then f5 = 1, f6 = 1, f7 = 0 (zero omitted as the default). */
-export function encodePairingRequest(i: PairingRequestInput): Uint8Array {
-  const w = new PbWriter()
-    .string(1, i.sessionId)
-    .message(2, encodeBrowserDetails(i.browser))
-    .varint(3, i.timeMs)
-    .bytes(4, i.ukey2)
-    .varint(5, 1)
-    .varint(6, 1);
-  if (i.notice !== undefined) w.string(8, i.notice);
+/**
+ * Round 1 [B@1102530 `w8a`]: f1–f4, then f5 = 1, f6 = 1, f7 = 0. Zero is stored unset by the client's
+ * clear-if-default setter [B@31240], so f7 is not written (A-015 item 6). Never sets f8.
+ */
+export function encodeRound1Request(i: PairingRequestInput): Uint8Array {
+  return base(i).varint(5, 1).varint(6, 1).finish();
+}
+
+/**
+ * Round 2 [B@1101267 `v8a`]: only f1–f4 and f8. f8 = the notice when round-1 f9 is absent or 0, and the
+ * empty string when f9 is negative (A-015 item 3). An empty string is the default, so it is not written.
+ */
+export function encodeRound2Request(i: PairingRequestInput, round1: Pick<Round1Response, "versionF9">): Uint8Array {
+  const w = base(i);
+  if (round1.versionF9 === 0n) w.string(8, GOOGLE_UNDOCUMENTED_API_NOTICE);
   return w.finish();
+}
+
+function base(i: PairingRequestInput): PbWriter {
+  return new PbWriter().string(1, i.sessionId).message(2, encodeBrowserDetails(i.browser)).varint(3, i.timeMs).bytes(4, i.ukey2);
 }
 
 export class GaiaPairingError extends Error {
@@ -68,16 +78,20 @@ export interface Round1Response {
   versionF9: bigint;
 }
 
-/** Round-1 response [B@1102900–1103600]: f1 status, f2 error, f3 present, f4 echo, f5 UKEY2 wrapper type 3, f6/f7/f9. */
+/**
+ * Round-1 response [B@1102900–1103600]: f1 status, f2 error, f3 bool (must be true, A-015 item 4),
+ * f4 echo, f5 UKEY2 wrapper type 3, f6/f7/f9 versions (int, read signed; f9 default 0, ≤ 0).
+ */
 export function decodeRound1Response(b: Uint8Array, sessionId: string): Round1Response {
   const f = checkCommon(b, sessionId);
-  if (getBytes(f, 3) === undefined && getVarint(f, 3) === undefined) throw new GaiaPairingError("pairing response missing f3");
+  if (!getVarint(f, 3)) throw new GaiaPairingError("pairing response f3 is missing or false");
   const serverInit = getBytes(f, 5);
   if (!serverInit) throw new GaiaPairingError("pairing response missing UKEY2 message");
   if (unwrapUkey2(serverInit).type !== Ukey2Type.SERVER_INIT) throw new GaiaPairingError("pairing response is not a ServerInit");
-  const v6 = getVarint(f, 6) ?? 0n;
-  const v7 = getVarint(f, 7) ?? 0n;
-  const v9 = getVarint(f, 9) ?? 0n;
+  const signed = (n: number) => BigInt.asIntN(64, getVarint(f, n) ?? 0n);
+  const v6 = signed(6);
+  const v7 = signed(7);
+  const v9 = signed(9);
   if (v6 > MAX_VERSIONS.f6 || v7 > MAX_VERSIONS.f7 || v9 > MAX_VERSIONS.f9) throw new GaiaPairingError("unsupported pairing version");
   return { serverInit, versionF6: v6, rev1: v7 === 1n, versionF9: v9 };
 }
