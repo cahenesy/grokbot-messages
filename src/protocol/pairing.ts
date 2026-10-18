@@ -91,3 +91,11 @@ export function decodePairedContainer(b: Uint8Array): PairedData | undefined {
 }
 
 export const PAIRING_EVENT_ROUTE = 14;
+
+/**
+ * Pull the paired data out of one ReceiveMessages stream element, or undefined when the
+ * element is not a route-14 pairing event. The field path is Q-004.
+ */
+export function pairedFromStreamElement(_response: unknown): PairedData | undefined {
+  throw new SpecGapError("Q-004");
+}
