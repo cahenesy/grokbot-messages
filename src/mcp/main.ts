@@ -53,6 +53,8 @@ server.registerTool(
   async () => {
     try {
       const store = SessionStore.fromEnv();
+      if ((await store.load())?.phone) return text("Already paired. Unpair before pairing again.");
+      // The QR image embeds the payload keys and passes through the conversation; see issue #7.
       const key = DeviceKey.generate();
       const payload = generatePayloadKeys();
       const req = encodeRegisterPhoneRelay({

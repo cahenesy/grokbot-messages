@@ -25,4 +25,6 @@ Rules reminder: no excluded sources; no secrets; no phone numbers or account ema
 
 ## Log
 
-_(empty — add entries below)_
+Questions are filed as GitHub issues labelled `spec-question`: https://github.com/cahenesy/grokbot-messages/issues?q=label%3Aspec-question — one issue per question, numbered Q-NNN to match `src/protocol/specGaps.ts`.
+
+- 2026-10-18: Q-001 → #1, Q-002 → #2, Q-003 → #3, Q-004 → #4, Q-005 → #5, Q-006 → #6, Q-007 → #7

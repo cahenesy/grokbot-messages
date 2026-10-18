@@ -13,7 +13,7 @@ export type SpecGapId = keyof typeof SPEC_GAPS;
 
 export class SpecGapError extends Error {
   constructor(readonly gap: SpecGapId) {
-    super(`Spec gap ${gap}: ${SPEC_GAPS[gap]} (see GitHub issues labelled spec-question)`);
+    super(`Spec gap ${gap}: ${SPEC_GAPS[gap]} (GitHub issue #${Number(gap.slice(2))}, label spec-question)`);
     this.name = "SpecGapError";
   }
 }
