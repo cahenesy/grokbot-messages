@@ -82,8 +82,9 @@ export class SessionStore {
       ciphertext: ct.toString("base64"),
     };
     await mkdir(dirname(this.path), { recursive: true, mode: 0o700 });
-    const tmp = `${this.path}.${process.pid}.tmp`;
-    await writeFile(tmp, JSON.stringify(env), { mode: 0o600 });
+    // Unpredictable name + exclusive create: refuses to follow a pre-planted file or symlink.
+    const tmp = `${this.path}.${randomBytes(8).toString("hex")}.tmp`;
+    await writeFile(tmp, JSON.stringify(env), { mode: 0o600, flag: "wx" });
     await rename(tmp, this.path);
   }
 }
