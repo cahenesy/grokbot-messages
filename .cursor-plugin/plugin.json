@@ -29,9 +29,9 @@
         "type": "string",
         "description": "Relay API key (see spec issue #3)"
       },
-      "GOOGLE_MESSAGES_GOOGLE_COOKIES": {
+      "GOOGLE_MESSAGES_PAIRING_BASE_URL": {
         "type": "string",
-        "description": "Optional. Google web-session cookies (Cookie-header format) for Google-account pairing only. Grants broad access to your whole Google account; see README."
+        "description": "Optional. Public base URL at which the connector's single-use pairing page is reachable from your browser (defaults to a local http://127.0.0.1 address)."
       }
     },
     "required": [

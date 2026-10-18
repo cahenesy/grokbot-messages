@@ -6,7 +6,7 @@ grokbot-messages is open-source software that connects an MCP host (such as Grok
 
 ## What the connector handles
 
-- **Pairing:** Google-account pairing (you confirm a matching emoji on your phone) is the primary method. It requires Google web-session cookies that **you supply**. Those cookies grant broad access to your whole Google account, not just Messages. They are stored only encrypted, never logged or returned to the host, and discarded after pairing where the protocol allows. Signing out of the browser session they came from invalidates them.
+- **Pairing:** the connector serves a short-lived, single-use pairing page that you open in your own browser, and you scan its QR code with your phone. The QR contains the session's encryption keys. It is shown only on that page, held only in memory, and never logged or returned to the MCP host. The host sees only the link and a status. (An advanced, self-hosted-only option would use Google web-session cookies, which grant broad access to your whole Google account. It is not part of the normal setup.)
 - **Pairing and session material:** a device signing key, payload encryption keys, and auth tokens. These are stored only in an encrypted session file at `${GOOGLE_MESSAGES_SESSION_PATH}`, encrypted with a key derived from `${GOOGLE_MESSAGES_SESSION_KEY}`.
 - **Message content:** conversations, messages, and contact names that you ask the connector to read, and messages you explicitly confirm for sending. This content flows between Google's servers, the connector process, and the MCP host you use.
 
@@ -17,7 +17,7 @@ Nothing. The project operates no servers, collects no telemetry, and has no acce
 ## Third parties
 
 - **Google** processes your messages under Google's own terms and privacy policy.
-- **Your MCP host** (e.g. Grok Bot) receives whatever tool results the connector returns to it, such as message content you ask for. The connector **never** returns tokens, keys, pairing keys or QR codes in tool output. During Google-account pairing, the host sees only the emoji you are asked to match on your phone. The host's handling of tool results is governed by its own privacy policy.
+- **Your MCP host** (e.g. Grok Bot) receives whatever tool results the connector returns to it, such as message content you ask for. The connector **never** returns tokens, keys, pairing keys or QR codes in tool output. During Google-account pairing, the host sees only the pairing link and status. The host's handling of tool results is governed by its own privacy policy.
 
 ## Hosted connectors (e.g. Grok Bot's cloud computer)
 

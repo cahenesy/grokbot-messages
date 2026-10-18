@@ -14,7 +14,7 @@ Questions for the spec team are filed as GitHub issues with the `spec-question` 
 
 ## Design choices
 
-- **Google-account (emoji) pairing is the primary path** (owner ruling, issue #7). QR pairing is secondary and is not exposed as a tool: its payload contains the long-lived payload keys, so it must never pass through tool output or logs.
+- **Pairing via a single-use page** (owner direction, #14). `start_pairing` returns a short-lived, single-use link. You open it in your own browser and scan the QR code shown there with Google Messages → Device pairing → QR code scanner. The QR (which contains the long-lived payload keys) never appears in tool output, chat, or logs. The tools only return the link and a status. **Pairing from a phone alone:** open the link on any second screen (laptop, tablet, TV browser) and scan it with the phone. A camera-free option is under investigation (#16). Google may be retiring QR pairing in some regions; see #16.
 - **Hosted use.** On a per-user cloud host such as Grok Bot's, the encrypted session file and its passphrase live on the same machine. That protects against copies of the file, not against compromise of the host.
 - **Fail on unknowns.** Wherever the spec does not pin a wire detail, the code throws a `SpecGapError` naming the open question instead of guessing (`src/protocol/specGaps.ts`).
 
@@ -36,15 +36,21 @@ test/           unit tests against spec-defined layouts (no network)
 | `${GOOGLE_MESSAGES_SESSION_PATH}` | Path to the encrypted session file |
 | `${GOOGLE_MESSAGES_SESSION_KEY}` | Passphrase (≥16 chars) used to encrypt the session file |
 | `${GOOGLE_MESSAGES_API_KEY}` | Relay API key; to be replaced by a runtime read of the page config (#3) |
-| `${GOOGLE_MESSAGES_GOOGLE_COOKIES}` | **Optional.** Google web-session cookies, needed only for Google-account pairing |
+| `${GOOGLE_MESSAGES_PAIRING_BASE_URL}` | **Optional.** HTTPS URL at which your browser reaches the pairing page (default: a local `http://127.0.0.1` address, for running the connector on your own machine) |
 
-> ⚠️ **Google cookies grant broad access to your whole Google account, not just Messages.** Supply them only if you accept that. They are kept only in memory and in the encrypted session file, never logged or returned in tool output, and dropped after pairing where the protocol allows. Signing out of the browser session they came from invalidates them. If you don't want to share cookies, run the connector yourself (same package, locally or on your own server).
+Self-hosting extras: `GOOGLE_MESSAGES_PAIRING_BIND` / `GOOGLE_MESSAGES_PAIRING_PORT` set the pairing page's listen address and port.
+
+### Advanced (self-hosted only): Google-account cookies
+
+Not part of the normal setup. Google-account (emoji) pairing would need your Google web-session cookies. ⚠️ **Those cookies grant broad access to your whole Google account, not just Messages.** If this option is ever enabled, the cookies are kept only in memory and in the encrypted session file, never logged or returned, and signing out of the browser session they came from invalidates them. The protocol support is in `src/session/googleAuth.ts`. It is not wired into any tool yet (#15).
 
 Never commit real values. The session file is encrypted with AES-256-GCM using a scrypt-derived key.
 
 ## Tools (Phase 1)
 
 - `get_session_status` — whether paired and when the token expires; never returns secrets.
+- `start_pairing` — returns `{status, link, expiresAt}` for the single-use pairing page.
+- `get_pairing_status` — `waiting`, `paired`, `expired`, `failed` or `none`.
 
 Sending messages will require explicit per-message user confirmation: a send is first prepared, which returns a one-time code bound to the exact text, and only a matching confirm call executes it (`src/mcp/confirm.ts`).
 

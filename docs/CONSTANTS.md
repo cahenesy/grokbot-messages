@@ -94,3 +94,11 @@ Status: ✅ spec/answer; 🟡 from implementer's bundle read, **pending spec-tea
 | Hash | SHA-1 hex; timestamped `<s>_<hex>` over `<s> <cookie> <origin>`; untimestamped `<hex>` | A-012 [B@298938] | ✅ (branch choice UNVERIFIED) | `session/googleAuth.ts` |
 | Origin | `https://messages.google.com` (rule [B@298200]) | A-012 | ✅ | `session/googleAuth.ts` |
 | `X-Goog-AuthUser` | `0` | A-012 (VERIFIED-LIVE) | ✅ | `session/googleAuth.ts` |
+
+## Pairing page (implementation choices, not protocol constants)
+
+| Constant | Value | Rationale | Code |
+|---|---|---|---|
+| Link lifetime | 120 s | Must be ≤ the server QR expiry (field UNVERIFIED, Q-002, #2); short by design | `pairing/qrPairing.ts` |
+| Link token | 32 random bytes, base64url, compared in constant time | Unguessable single-use link | `pairing/pageServer.ts` |
+| Page headers | no-store, no-referrer, CSP `default-src 'none'` + nonces, frame-ancestors none | Keep the QR out of caches, referrers and frames | `pairing/pageServer.ts` |
