@@ -11,7 +11,11 @@ export interface BrowserDetails {
   userAgent: string;
   browserType: number;
   os: "" | "Windows" | "Mac" | "ChromeOS" | "Android" | "iOS" | "Linux";
-  /** f5 and f6 meanings are not specified; omitted unless set. */
+  /**
+   * f5 = a client boolean flag; f6 = 2 when that flag is set, else 3 or 1 [B@1085900 `i7a`].
+   * Meaning UNVERIFIED (A-005). The browser always sends both; defaults match the
+   * both-flags-off case (f5 = false, f6 = 1).
+   */
   flag5?: boolean;
   deviceKind?: 1 | 2 | 3;
 }
@@ -20,20 +24,25 @@ export interface RegisterPhoneRelayInput {
   browser: BrowserDetails;
   spkiDer: Uint8Array;
   requestId?: string;
-  /** Field number of the SPKI inside the f4 key-data submessage (Q-002). */
-  keyFieldNumber?: number;
 }
 
+/**
+ * RegisterPhoneRelay request (§4.1 step 2): f1 auth header, f3 browser details, f4 key data.
+ * Key data is f4 = { f6 = { f1 = 2, f2 = SPKI DER } } per the public bundle
+ * [B@1083605 `vJ`, B@722929 `oOa`, B@723205 `tOa`] (DEVLOG 2026-10-18). Pending spec-team review (#2).
+ */
 export function encodeRegisterPhoneRelay(i: RegisterPhoneRelayInput): Uint8Array {
-  if (i.keyFieldNumber === undefined) throw new SpecGapError("Q-002");
-  const browser = new PbWriter().string(1, i.browser.userAgent).varint(2, i.browser.browserType).string(3, i.browser.os);
-  if (i.browser.flag5 !== undefined) browser.varint(5, i.browser.flag5);
-  if (i.browser.deviceKind !== undefined) browser.varint(6, i.browser.deviceKind);
-  const keyData = new PbWriter().varint(1, 2).bytes(i.keyFieldNumber, i.spkiDer);
+  const browser = new PbWriter()
+    .string(1, i.browser.userAgent)
+    .varint(2, i.browser.browserType)
+    .string(3, i.browser.os)
+    .varint(5, i.browser.flag5 ?? false)
+    .varint(6, i.browser.deviceKind ?? 1);
+  const key = new PbWriter().varint(1, 2).bytes(2, i.spkiDer);
   return new PbWriter()
     .message(1, authHeaderPb("Bugle", i.requestId))
     .message(3, browser)
-    .message(4, keyData)
+    .message(4, new PbWriter().message(6, key))
     .finish();
 }
 

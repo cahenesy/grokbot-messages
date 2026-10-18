@@ -17,3 +17,14 @@ Required by clean-room rule 5 (`docs/handoff/README.md`). This log names every U
 
 - Owner rulings: A-006 (clean-room controls, binding) and A-007 (Google-account pairing primary; QR never in tool output). QR tools removed from the MCP server.
 - **Clean-room attestation (Phase 1), 2026-10-18:** No source on the do-not-open list in `docs/handoff/README.md` rule 1 has been opened, searched for, or retrieved in the course of this project. Renewed each phase.
+
+## 2026-10-18 — public client bundle read (rule 2 allowed source)
+
+- Fetched `https://messages.google.com/web/authentication` and its bundle `https://www.gstatic.com/_/messagesweb/_/js/k=messagesweb.mw.en_US.4-84y6pqYJM.O/am=AACAIQABACA/d=1/rs=AIp04d9V1dMnewToXdvGG9HxNT8PFbFzvQ/m=mw_b` (1,238,847 bytes; sha256 prefix `e310b645c7504f76`). This is the same build as SPEC.md; `"Ditto salt 1"` is at offset 1099375, matching SPEC [B@1099375]. Kept in scratch, outside the repo.
+- Findings, cited by offset (pending spec-team constant review):
+  - RegisterPhoneRelay key data [B@1083605 `vJ`, B@722929 `oOa`, B@723205 `tOa`]: request f4 = { f6 = { f1 = 2, f2 = SPKI DER } }. → Q-002
+  - Browser details [B@1085900 `i7a`]: f5 = a client boolean flag, f6 = 2 if that flag is set, else 3 if a second flag is set, else 1. → Q-005
+  - Pairing and Gaia auth providers send `X-Goog-Api-Key` from page-config constant `A16fYe` [B@811680 `_.AE`, used at B@1083605 and B@1094258]. → Q-003
+  - `TACHYON_CLIENT_INFO` [B@973382] builds the AuthMessage ConfigVersion as f3, f4, f5 = a three-part date, f7 = 4, f9 = 6. With the A-001 live values, that maps Year→f3, Month→f4, Day→f5, V1→f7, V2→f9. → Q-001
+  - Gaia pairing client [B@~1101337]: writes Google's "undocumented API … prohibited per the Google API Terms of Service" notice into a request field (f8). The bundle also contains a BotGuard/`Waa` anti-abuse client [B@~1090216]; whether Gaia pairing requires it was not established.
+- Further bundle reading was stopped by a local tool-permission check. No API key values were recorded anywhere.

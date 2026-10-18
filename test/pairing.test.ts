@@ -2,25 +2,25 @@ import { describe, expect, it } from "vitest";
 import { DeviceKey } from "../src/crypto/deviceKey.js";
 import { decodePairedContainer, decodeRegisterPhoneRelayResponse, encodeRegisterPhoneRelay, qrUrl } from "../src/protocol/pairing.js";
 import { PbWriter, decode, getBytes, getMessage, getString, getVarint } from "../src/protocol/protobuf.js";
-import { SpecGapError } from "../src/protocol/specGaps.js";
 
 const browser = { userAgent: "ua", browserType: 1, os: "Linux" as const };
 
 describe("RegisterPhoneRelay", () => {
-  it("refuses to guess the SPKI field number (Q-002)", () => {
-    expect(() => encodeRegisterPhoneRelay({ browser, spkiDer: new Uint8Array(91) })).toThrow(SpecGapError);
-  });
-
   it("lays out auth header, browser details and key data", () => {
     const spki = DeviceKey.generate().spki();
-    const f = decode(encodeRegisterPhoneRelay({ browser, spkiDer: spki, requestId: "rid", keyFieldNumber: 99 }));
+    const f = decode(encodeRegisterPhoneRelay({ browser, spkiDer: spki, requestId: "rid" }));
     const auth = getMessage(f, 1)!;
     expect(getString(auth, 1)).toBe("rid");
     expect(getString(auth, 3)).toBe("Bugle");
-    expect(getString(getMessage(f, 3)!, 3)).toBe("Linux");
-    const key = getMessage(f, 4)!;
+    const b = getMessage(f, 3)!;
+    expect(getString(b, 3)).toBe("Linux");
+    expect(getVarint(b, 5)).toBe(0n);
+    expect(getVarint(b, 6)).toBe(1n);
+    const key = getMessage(getMessage(f, 4)!, 6)!; // [B@723205]
     expect(getVarint(key, 1)).toBe(2n);
-    expect(Buffer.from(getBytes(key, 99)!).equals(Buffer.from(spki))).toBe(true);
+    expect(spki.length).toBe(91); // A-002: P-256 SPKI DER is 91 bytes
+    expect(Buffer.from(spki.subarray(0, 13)).toString("hex")).toBe("3059301306072a8648ce3d0201");
+    expect(Buffer.from(getBytes(key, 2)!).equals(Buffer.from(spki))).toBe(true);
   });
 
   it("decodes pairing key and token", () => {

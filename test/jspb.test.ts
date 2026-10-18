@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { field, jspb } from "../src/protocol/jspb.js";
-import { authMessageJspb } from "../src/protocol/auth.js";
-import { SpecGapError } from "../src/protocol/specGaps.js";
+import { CONFIG_VERSION_2026_10_15, authMessageJspb } from "../src/protocol/auth.js";
 
 describe("jspb", () => {
   it("places field n at index n-1 with null gaps", () => {
@@ -14,9 +13,8 @@ describe("jspb", () => {
     expect(m).toEqual(["rid", null, "Bugle", null, null, "AQI="]);
   });
 
-  it("refuses to guess ConfigVersion field numbers", () => {
-    expect(() =>
-      authMessageJspb({ network: "Bugle", configVersion: { year: 2026, month: 10, day: 15, v1: 4, v2: 6 } }),
-    ).toThrow(SpecGapError);
+  it("places ConfigVersion at f3/f4/f5/f7/f9 [B@973382]", () => {
+    const m = authMessageJspb({ network: "GDitto", requestId: "r", configVersion: CONFIG_VERSION_2026_10_15 });
+    expect(m[6]).toEqual([null, null, 2026, 10, 15, null, 4, null, 6]);
   });
 });

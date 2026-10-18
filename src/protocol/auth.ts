@@ -3,7 +3,6 @@
 import { randomUUID } from "node:crypto";
 import { b64, field, jspb, unb64, type Jspb } from "./jspb.js";
 import { PbWriter, getString, getVarint, type RawField } from "./protobuf.js";
-import { SpecGapError } from "./specGaps.js";
 
 export type Network = "Bugle" | "GDitto" | "RCS";
 
@@ -41,10 +40,17 @@ export function deviceIdentityFromPb(f: RawField[]): DeviceIdentity {
   return { type: Number(getVarint(f, 1) ?? 0n), sourceId, network };
 }
 
-/** ConfigVersion subfield numbers are not in SPEC.md (Q-001). */
-export function configVersionJspb(_v: ConfigVersion): Jspb {
-  throw new SpecGapError("Q-001");
+/**
+ * ConfigVersion: f3 year, f4 month, f5 day, f7 V1, f9 V2.
+ * Field numbers from the public bundle `TACHYON_CLIENT_INFO` [B@973382] (DEVLOG 2026-10-18),
+ * matched to the VERIFIED-LIVE values 2026/10/15/4/6 (A-001). Pending spec-team review (#1).
+ */
+export function configVersionJspb(v: ConfigVersion): Jspb {
+  return jspb({ 3: v.year, 4: v.month, 5: v.day, 7: v.v1, 9: v.v2 });
 }
+
+/** Values seen live on 2026-10-18 for build messagesweb.mw.en_US.4-84y6pqYJM.O (A-001). They track the client build. */
+export const CONFIG_VERSION_2026_10_15: ConfigVersion = { year: 2026, month: 10, day: 15, v1: 4, v2: 6 };
 
 export interface AuthMessageInput {
   network: Network;
