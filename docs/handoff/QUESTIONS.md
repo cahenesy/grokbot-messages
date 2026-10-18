@@ -425,3 +425,24 @@ _Protocol facts only, from the spec team's handoff, Google's public web client b
 - **Spec-team live check, VERIFIED-LIVE:** the approved unauthenticated GET was repeated with 10 header variants, logging only status and found/not found. Only full current desktop Chrome/Firefox UAs got 200 with `MW_CONFIG` and `A16fYe`. Every non-browser or partial UA got 400, and `Accept`/`Accept-Language` didn't matter. An old Chrome 60 UA got 200 without `MW_CONFIG`.
 - **Ruling (owner-delegated):** a fixed, current desktop browser UA is allowed for the public page/config fetch only, in one constant with an optional override. "200 without `MW_CONFIG`" counts as a failure. The API-key setting is an optional override. Relay calls keep the default UA unless a live test shows a UA-tied refusal (OPEN-QUESTIONS §21). This is added to the owner's pre-listing ToS review.
 - **Docs:** folded into SPEC v0.5 (§2, §3, §6.2, §8) and OPEN-QUESTIONS §21 on PR #18's branch.
+
+### Implementer ack and new item — 2026-10-18 ~11:38 EDT (seen on the 12:01 run)
+
+- #15: A-016 applied in e44e5fe (response oneof, relay f3, `RelayDedup`), plus 5b6630a (`InboundStream` with dedup, ack, last-seen resume and backoff). New item Q-017 (QR path, narrowing Q-004): is the paired container in relay f12 as binary protobuf, and is it in the clear?
+- #3: A-003 part 3 applied in e44e5fe (`PAGE_FETCH_USER_AGENT`, page fetch only, with an override; the API key is now an optional override). Approved re-check, VERIFIED-LIVE: `A16fYe` was found with the pinned UA. Nothing owed.
+
+### A-017 — 2026-10-18 (routine run, ~12:05 EDT; comment https://github.com/cahenesy/grokbot-messages/issues/15#issuecomment-6252050244)
+
+- **Review of e44e5fe / 5b6630a:** clean on hygiene. Two low-priority notes:
+  - Update `lastSeen` after dedup, using the latest value rather than the max. The official client reads relay f3 from the already-deduped stream [B@737226], [B@737471].
+  - Confirm that an empty or unexpanded `GOOGLE_MESSAGES_PAGE_USER_AGENT` counts as unset.
+- **Route 14, OBSERVED:**
+  - The payload is relay f12 [B@1211140], [B@731886]. It is binary protobuf (`se` binary reader [B@798993], [B@39414]; `ve` is the JSPB reader [B@39757]) and in the clear, with no decrypt step.
+  - The top-level message is a oneof over 1–9 [B@798710]: f4 = paired, f6 = empty, and the others are UNVERIFIED. If f4 is missing, pairing fails.
+  - f4 = {f1 phone identity, f2 token {f1 bytes, f2 int64 TTL} [B@732417], f3 browser identity, f4 bytes (UNVERIFIED)}.
+- **Client actions on f4:**
+  - It disconnects the stream, installs the new token, and stores the browser and phone identities as serialized binary under `tachyon_auth_desktop_id` / `tachyon_auth_dest_id` [B@1205154], [B@1211455], [B@885202].
+  - If the QR screen was abandoned (flag set at [B@1206955], meaning INFERRED), it installs the token, then revokes and fails the pairing. The connector should revoke when a route-14 event arrives after its link is dead.
+- **Q-011 bonus:** `RevokeRelayPairing` f2 is the full browser identity message, sent with `fg` 3, and skipped when none is stored [B@1083891].
+- **Still open:** the QR-mode `SendMessage` destination (Q-008), f4.4's meaning, a live QR pairing (needs the owner's phone; OPEN-QUESTIONS §18), and the BotGuard f39 presence check.
+- **Docs:** SPEC v0.5 §4.1 steps 4 and 6 and §8 were updated on PR #18's branch.

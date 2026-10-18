@@ -1,6 +1,6 @@
 # Google Messages for Web Protocol: Clean-Room Behavioral Specification
 
-Version 0.5 (handoff), 2026-10-18. Clean-room behavioral specification for the implementation team. v0.3 added the spec-team answers to implementer questions Q-001–Q-011 (§0.5). v0.4 added the Google web session header construction (A-012, §3), the single-use pairing page direction (revised A-012, §4.1), and the SignInGaia structure and BotGuard findings (A-013 part 1, §4.2). v0.5 adds the page-config layout (A-003 follow-up, §2), the Google-account pairing rounds, HKDF table, rev1 ordering, destination choice and DeviceId correction (A-013 part 2, §4.2), the verification emoji (A-015, §4.2.3 and `EMOJI-TABLES.md`), corrections to the `SendMessage` destination and the inbound envelope (A-015, §6), the page-fetch `User-Agent` rule (A-003 part 3, §2), and the `ReceiveMessages` response structure (A-016, §3, §6.2, §8).
+Version 0.5 (handoff), 2026-10-18. Clean-room behavioral specification for the implementation team. v0.3 added the spec-team answers to implementer questions Q-001–Q-011 (§0.5). v0.4 added the Google web session header construction (A-012, §3), the single-use pairing page direction (revised A-012, §4.1), and the SignInGaia structure and BotGuard findings (A-013 part 1, §4.2). v0.5 adds the page-config layout (A-003 follow-up, §2), the Google-account pairing rounds, HKDF table, rev1 ordering, destination choice and DeviceId correction (A-013 part 2, §4.2), the verification emoji (A-015, §4.2.3 and `EMOJI-TABLES.md`), corrections to the `SendMessage` destination and the inbound envelope (A-015, §6), the page-fetch `User-Agent` rule (A-003 part 3, §2), the `ReceiveMessages` response structure (A-016, §3, §6.2, §8), and the QR route-14 payload and `RevokeRelayPairing` f2 (A-017, §4.1).
 
 ## 0. How to read this document
 
@@ -194,7 +194,10 @@ The json+protobuf encoding is Google's positional JSON-array form of protobuf. A
    - 2 = a new token submessage, with field 1 = token and field 2 = TTL.
    - 3 = the browser's own device identity, which the client stores as `tachyon_auth_desktop_id`.
 
-   Whether the route-14 payload is binary or JSPB, whether it is encrypted at this point, and the QR-mode `ReceiveMessages` request body beyond the AuthMessage are all **UNVERIFIED** (Q-004). In QR mode, the phone identity from f4.1 is INFERRED to be the `SendMessage` f1 destination; send it exactly as received (Q-008).
+   **Route-14 payload (A-017, OBSERVED):** the payload is relay **f12** [B@1211140], [B@731886]. On the JSPB stream it arrives base64-encoded; once decoded, it is **binary** protobuf (`se` binary reader [B@798993], [B@39414]) and **in the clear**, with no decrypt step before the handler. The top-level message is a oneof over fields 1–9 [B@798710]: f4 = paired, f6 = an empty message, and the other branches are UNVERIFIED. If f4 is absent, pairing fails. Inside f4: f1 phone identity; f2 token {f1 bytes, f2 int64 TTL} [B@732417]; f3 browser identity; f4 bytes (unread by the QR handler, meaning UNVERIFIED).
+   - **On f4 the client** disconnects the stream and installs the **new** token (expiry = now + f2/1000 ms). It stores the browser identity and the phone identity as serialized binary under `tachyon_auth_desktop_id` / `tachyon_auth_dest_id` [B@1205154], [B@1211455], then resolves. Reconnect with the new token.
+   - **Abandoned pairing:** if the QR screen was abandoned before the scan (INFERRED meaning of the flag set at [B@1206955]), the client installs the token, then calls `RevokeRelayPairing` and fails the pairing. Recommended: a connector whose pairing link has already expired or died should revoke too.
+   - The QR-mode `ReceiveMessages` request body is the same as in §6.2 (INFERRED). In QR mode, the phone identity from f4.1 is INFERRED to be the `SendMessage` f1 destination; send it exactly as received (Q-008).
    
    A device identity is a small message with three fields: (1) a type / registration enum (VERIFIED-LIVE value `16` for the GDitto browser device; other values such as `1` appear for RCS identities), (2) a string source ID (VERIFIED-LIVE length 19 in live captures), and (3) a string network (`"GDitto"`, `"RCS"`, or `"Bugle"`). The earlier reading of field 1 as a large int64 user ID is CONTRADICTED by the live capture.
 
@@ -202,7 +205,7 @@ The json+protobuf encoding is Google's positional JSON-array form of protobuf. A
 
 5. **QR refresh.** If the QR code expires before it is scanned, the client calls `RefreshPhoneRelay`. The call is authenticated with the token from step 2, and its response field 2 holds a new pairing key, from which a new QR code is built [B@1210378].
 
-6. **Revocation.** `RevokeRelayPairing` takes field 2 = the browser device identity (source ID). It is sent on sign-out [B@1084238]. Whether f2 is the full identity message or only the source-ID string is UNVERIFIED. That f1 is the auth header is INFERRED from §4.3 (Q-011).
+6. **Revocation.** `RevokeRelayPairing` takes field 2 = the browser device identity (source ID). It is sent on sign-out [B@1084238]. f2 is the **full browser identity message**, decoded from the stored `tachyon_auth_desktop_id`, not only the source-ID string. It is sent with `fg` 3, and revocation is skipped when no browser identity is stored [B@1083891] (OBSERVED, A-017). That f1 is the auth header is INFERRED from §4.3 (Q-011).
 
 ### 4.2 Google-account ("Gaia"/"Ditto") pairing: partly OBSERVED
 
@@ -498,7 +501,7 @@ Both Copper and Bugle use Google’s `x-goog-upload-*` resumable protocol:
 
 - Token refresh is described in §4.3.
 - Unpair from the browser uses `RevokeRelayPairing` (QR mode) or `Registration/Unregister` (account mode) (OBSERVED methods; the usage mapping is INFERRED).
-- An unpair initiated by the phone is UNVERIFIED. The container that carries the pairing event appears to have an alternative branch for revocation; this is INFERRED from the `field 4` "paired" access implying sibling variants.
+- An unpair initiated by the phone is UNVERIFIED. The route-14 container is a oneof over fields 1–9, with f4 = paired and f6 = empty (A-017 [B@798710]). Whether one of the other branches signals revocation is UNVERIFIED.
 - The client limits itself to one active browser session per pairing; see "session preempted" in §6.2.
 
 ## 11. Error handling
