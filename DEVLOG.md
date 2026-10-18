@@ -11,3 +11,4 @@ Required by clean-room rule 5 (`docs/handoff/README.md`). This log names every U
 - Grok Bot hosting environment: web search "Grok Bot connector marketplace plugin requirements license MCP"; https://composio.dev/content/how-to-add-mcp-servers-to-grok-bot (Grok Bot runs stdio MCP servers on a cloud computer). No license requirements found there.
 - npm package metadata only (versions, license fields) for @modelcontextprotocol/sdk, zod, qrcode, vitest, typescript.
 - Not consulted: any item on the handoff do-not-open list.
+- Cursor plugin format: https://cursor.com/docs/plugins and https://cursor.com/docs/reference/plugins (manifest fields, `mcp.json`, `${VAR}` plugin variables, submission checklist; no license requirement stated beyond "open source").

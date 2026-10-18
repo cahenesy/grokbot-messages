@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "google-messages": {
+      "command": "npx",
+      "args": ["-y", "github:cahenesy/grokbot-messages"],
+      "env": {
+        "GOOGLE_MESSAGES_SESSION_PATH": "${GOOGLE_MESSAGES_SESSION_PATH}",
+        "GOOGLE_MESSAGES_SESSION_KEY": "${GOOGLE_MESSAGES_SESSION_KEY}",
+        "GOOGLE_MESSAGES_API_KEY": "${GOOGLE_MESSAGES_API_KEY}"
+      }
+    }
+  }
+}

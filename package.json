@@ -14,7 +14,8 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "start": "node dist/mcp/main.js"
+    "start": "node dist/mcp/main.js",
+    "prepare": "tsc -p tsconfig.json"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.1",
@@ -26,5 +27,16 @@
     "@types/qrcode": "^1.5.6",
     "typescript": "^7.0.2",
     "vitest": "^5.0.5"
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md",
+    "PRIVACY.md",
+    "TERMS.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cahenesy/grokbot-messages.git"
   }
 }

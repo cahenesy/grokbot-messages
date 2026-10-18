@@ -1,0 +1,19 @@
+{
+  "name": "grokbot-messages",
+  "description": "Read and (with per-message confirmation) send Google Messages from your own paired phone via Google Messages for Web.",
+  "version": "0.0.1",
+  "author": { "name": "cahenesy" },
+  "homepage": "https://github.com/cahenesy/grokbot-messages",
+  "repository": "https://github.com/cahenesy/grokbot-messages",
+  "license": "Apache-2.0",
+  "keywords": ["google-messages", "sms", "rcs", "mcp"],
+  "variables": {
+    "type": "object",
+    "properties": {
+      "GOOGLE_MESSAGES_SESSION_PATH": { "type": "string", "description": "Path to the encrypted session file" },
+      "GOOGLE_MESSAGES_SESSION_KEY": { "type": "string", "description": "Passphrase (16+ characters) encrypting the session file" },
+      "GOOGLE_MESSAGES_API_KEY": { "type": "string", "description": "Relay API key (see spec issue #3)" }
+    },
+    "required": ["GOOGLE_MESSAGES_SESSION_PATH", "GOOGLE_MESSAGES_SESSION_KEY"]
+  }
+}
