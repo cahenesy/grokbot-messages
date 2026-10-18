@@ -106,3 +106,35 @@ export function sealGcm(aesKey: Uint8Array, plaintext: Uint8Array, nonce: Uint8A
 export function generatePayloadKeys(): PayloadKeys {
   return { aesKey: new Uint8Array(randomBytes(32)), hmacKey: new Uint8Array(randomBytes(32)) };
 }
+
+/**
+ * Wire cipher for envelope f5 (outbound) and f8 (inbound), A-018 item 5 [B@1076193–1078094]:
+ * AES-CTR with a random 16-byte IV as the full 128-bit counter block (16- or 32-byte key), tag =
+ * HMAC-SHA256(hmacKey, ct ‖ IV), wire = ct ‖ IV ‖ tag. Empty plaintext is passed through unencrypted
+ * in both directions; anything else shorter than 48 bytes is rejected.
+ */
+export function encryptPayload(keys: PayloadKeys, plaintext: Uint8Array, iv: Uint8Array = randomBytes(IV_LEN)): Uint8Array {
+  if (plaintext.length === 0) return new Uint8Array();
+  const alg = ctrAlgorithm(keys.aesKey);
+  if (iv.length !== IV_LEN) throw new RangeError("IV must be 16 bytes");
+  const c = createCipheriv(alg, keys.aesKey, iv);
+  const ct = Buffer.concat([c.update(plaintext), c.final()]);
+  return new Uint8Array(Buffer.concat([ct, iv, mac(keys.hmacKey, ct, iv)]));
+}
+
+export function decryptPayload(keys: PayloadKeys, wire: Uint8Array): Uint8Array {
+  if (wire.length === 0) return new Uint8Array();
+  if (wire.length < IV_LEN + TAG_LEN) throw new Error("encrypted payload shorter than 48 bytes");
+  const tag = wire.subarray(wire.length - TAG_LEN);
+  const iv = wire.subarray(wire.length - TAG_LEN - IV_LEN, wire.length - TAG_LEN);
+  const ct = wire.subarray(0, wire.length - TAG_LEN - IV_LEN);
+  if (!timingSafeEqual(mac(keys.hmacKey, ct, iv), tag)) throw new Error("HMAC mismatch");
+  const d = createDecipheriv(ctrAlgorithm(keys.aesKey), keys.aesKey, iv);
+  return new Uint8Array(Buffer.concat([d.update(ct), d.final()]));
+}
+
+function ctrAlgorithm(aesKey: Uint8Array): "aes-128-ctr" | "aes-256-ctr" {
+  if (aesKey.length === 32) return "aes-256-ctr";
+  if (aesKey.length === 16) return "aes-128-ctr";
+  throw new RangeError("AES key must be 16 or 32 bytes");
+}

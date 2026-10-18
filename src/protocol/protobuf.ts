@@ -115,3 +115,16 @@ export function getMessage(fields: RawField[], n: number): RawField[] | undefine
   const b = getBytes(fields, n);
   return b === undefined ? undefined : decode(b);
 }
+
+/** All occurrences of a length-delimited field (repeated). */
+export function getAllBytes(fields: RawField[], n: number): Uint8Array[] {
+  return fields.filter((x) => x.field === n && x.wire === 2).map((x) => x.value as Uint8Array);
+}
+
+export const getAllMessages = (fields: RawField[], n: number): RawField[][] => getAllBytes(fields, n).map(decode);
+
+/** Lowest field number present among `candidates` (for oneofs). */
+export function oneofCase(fields: RawField[], candidates: readonly number[]): number | undefined {
+  const present = new Set(fields.map((f) => f.field));
+  return candidates.find((c) => present.has(c));
+}

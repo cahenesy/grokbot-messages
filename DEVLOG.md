@@ -45,3 +45,8 @@ Required by clean-room rule 5 (`docs/handoff/README.md`). This log names every U
 - Unauthenticated GET of `https://messages.google.com/web/authentication` through `src/transport/pageConfig.ts`, no cookies. Logged only status and found/not-found.
 - Result: **HTTP 400** with UA `grokbot-messages/0.0.1` and with Node's default UA; `MW_CONFIG` not present. The earlier 2026-10-18 fetch with a Chrome-style UA (bundle read) got 200. No browser-UA retry was made: impersonating a browser is an owner decision.
 - Re-check with the pinned desktop-browser UA (A-003 part 3 ruling): `A16fYe` **found**; no value printed or stored.
+
+## 2026-10-18 — A-018 / A-019 (#9, #10)
+
+- Implemented the wire cipher (ct ‖ IV ‖ HMAC; empty plaintext passed through), the action 16/31/1/2/17 layouts, Conversation/Participant/Message/part decoders, push-update decoding (action 16 under the session ID; f7 → action 17), the stale-update filter, and `MessagesClient` (session activation, request matching, push routing).
+- Late QR scans (spec-team note on ff3ec43): we rely on server-side pairing-key expiry; on the first live run, scan just after the link expires and log only whether route 14 arrived.

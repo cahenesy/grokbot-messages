@@ -40,6 +40,16 @@ export class RequestTracker<T> {
     return true;
   }
 
+  /** Rejects one pending request (e.g. its send failed). */
+  reject(requestId: string, e: Error): boolean {
+    const p = this.pending.get(requestId);
+    if (!p) return false;
+    clearTimeout(p.timer);
+    this.pending.delete(requestId);
+    p.reject(e);
+    return true;
+  }
+
   rejectAll(e: Error): void {
     for (const p of this.pending.values()) {
       clearTimeout(p.timer);

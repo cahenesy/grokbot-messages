@@ -165,7 +165,8 @@ export interface SendMessageInput {
   destination: DeviceIdentity;
   envelope: ActionEnvelope;
   messageId?: string;
-  qN?: number;
+  /** Message f23 qN; `null` omits f23 (e.g. action 1 after the first call, A-018). */
+  qN?: number | null;
   deadlineMicros?: bigint;
   /** f9: repeated registration-ID targets (Gaia mode) [B@1098597]. JSPB bytes as base64 strings (UNVERIFIED, A-015). */
   targets?: Uint8Array[];
@@ -183,7 +184,7 @@ export function encodeSendMessage(i: SendMessageInput): Jspb {
     1: i.messageId ?? randomUUID(),
     2: PHONE_RPC_MESSAGE_TYPE,
     12: b64(encodeEnvelopePb(i.envelope)),
-    23: [null, i.qN],
+    23: i.qN === null ? undefined : [null, i.qN],
   });
   return jspb({
     1: deviceIdentityJspb(i.destination),
