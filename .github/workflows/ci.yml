@@ -1,0 +1,27 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - name: Secret pattern scan
+        run: |
+          if git grep -nIE 'AIza[0-9A-Za-z_-]{30,}|gh[po]_[0-9A-Za-z]{30,}|SAPISID=|BEGIN (EC )?PRIVATE KEY' -- . ':!package-lock.json'; then
+            echo "Possible secret committed"; exit 1
+          fi
+      - name: Copyleft dependency check
+        run: |
+          npx --yes license-checker@25.0.1 --production --failOn 'GPL;AGPL;LGPL;GPL-2.0;GPL-3.0;AGPL-3.0;LGPL-2.1;LGPL-3.0' --summary
