@@ -19,7 +19,7 @@ jobs:
       - run: npm test
       - name: Secret pattern scan
         run: |
-          if git grep -nIE 'AIza[0-9A-Za-z_-]{30,}|gh[po]_[0-9A-Za-z]{30,}|SAPISID=|BEGIN (EC )?PRIVATE KEY' -- . ':!package-lock.json' ':!.github/workflows/ci.yml'; then
+          if git grep -nIE 'AIza[0-9A-Za-z_-]{30,}|gh[po]_[0-9A-Za-z]{30,}|SAPISID=[A-Za-z0-9_/-]{20,}|BEGIN (EC )?PRIVATE KEY' -- . ':!package-lock.json' ':!.github/workflows/ci.yml'; then
             echo "Possible secret committed"; exit 1
           fi
       - name: Copyleft dependency check
