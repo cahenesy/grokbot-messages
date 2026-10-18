@@ -158,11 +158,21 @@ Do not use third-party traffic, other people's numbers, or excluded implementati
 
 ---
 
+## 20. Google-account pairing rounds end to end (Q-015)
+
+**Unknown:**
+- how `SendMessage` f9 (the registration-ID targets) is encoded in JSPB (a base64 string, or something else);
+- whether round-2 f8 (the optional AES-GCM blob) appears for ordinary accounts, and what its fields mean;
+- whether the binary-encoded UKEY2 transcript (SPEC §4.2.1) produces the same emoji the phone shows.
+
+**Test:** In your own paired session, record only the JSPB type of `SendMessage` f9 (string or array) and its decoded length. On your first end-to-end attempt, compare the emoji your client computes with the one the phone shows, and record only match or no match. Record only whether round-2 f8 is present and its length. Never record keys, tokens, account emails or registration IDs.
+
+---
+
 ## Still useful but lower priority
 
 - QR (`RegisterPhoneRelay`) path field lengths and `c=` base64 variant (Gaia path is the primary target for the MCP connector).
 - `CANCEL_GAIA_PAIRING` wire call.
-- Full UKEY2 submessage mapping inside SignInGaia field 2 beyond type=3.
 - Application-level action 17 ack vs relay `AckMessages`.
 - Concurrent second browser session / session-preempted behavior.
 - Inactivity unpair (~14 d config flag) — do not wait; treat as OBSERVED config only.

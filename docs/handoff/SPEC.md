@@ -1,12 +1,12 @@
 # Google Messages for Web Protocol: Clean-Room Behavioral Specification
 
-Version 0.4 (handoff), 2026-10-18. Clean-room behavioral specification for the implementation team. v0.3 added the spec-team answers to implementer questions Q-001–Q-011 (§0.5). v0.4 adds the Google web session header construction (A-012, §3), the single-use pairing page direction (revised A-012, §4.1), and the SignInGaia structure and BotGuard findings (A-013 part 1, §4.2).
+Version 0.5 (handoff), 2026-10-18. Clean-room behavioral specification for the implementation team. v0.3 added the spec-team answers to implementer questions Q-001–Q-011 (§0.5). v0.4 added the Google web session header construction (A-012, §3), the single-use pairing page direction (revised A-012, §4.1), and the SignInGaia structure and BotGuard findings (A-013 part 1, §4.2). v0.5 adds the page-config layout (A-003 follow-up, §2), the Google-account pairing rounds, HKDF table, rev1 ordering, destination choice and DeviceId correction (A-013 part 2, §4.2), the verification emoji (A-015, §4.2.3 and `EMOJI-TABLES.md`), and corrections to the `SendMessage` destination and the inbound envelope (A-015, §6).
 
 ## 0. How to read this document
 
 This document describes how the Google Messages for Web client behaves on the wire. It was written from Google's own web client (page HTML at `https://messages.google.com/web/authentication` and the JavaScript bundle module `mw_b` from `www.gstatic.com/_/messagesweb/...`, build `messagesweb.mw.en_US.4-84y6pqYJM.O`) plus live wire captures against that same official client. Supporting artifacts (bundle copies, capture summaries, provenance) are held by the spec team and are not part of this handoff package.
 
-Citations of the form **[B@offset]** point to a byte offset in Google's `mw_b` JavaScript bundle. **[H:flag]** points to a configuration flag key in the page HTML.
+Citations of the form **[B@offset]** point to a byte offset in Google's `mw_b` JavaScript bundle. **[P@offset]** points into the lazily loaded pair-page module `MqwFTd` and **[F@offset]** into the root-routes module `fZRov`, both fetched from `www.gstatic.com` for the same build (load URL form: the `mw_b` URL with `exm=<loaded modules>/ed=1` added and `m=<module>`). **[H:flag]** points to a configuration flag key in the page HTML.
 
 Confidence labels:
 
@@ -107,6 +107,15 @@ Hosts come from page configuration flags (OBSERVED, [H]):
 | Pairing help/QR base URL | `https://support.google.com/messages/?p=web_computer` | `cZrZ7c` (that this is the QR prefix is INFERRED, §4.1) |
 
 Two public API keys (`AIza...`) are embedded in the page config, and a third is in the bundle. They are sent as `X-Goog-Api-Key` (OBSERVED [B@1084238], [B@973804]). Which key is used in QR mode is **UNVERIFIED** (Q-003). Inspect those offsets in the public bundle to see which config value is wired in. They are not reproduced here; the implementer should read them from the live page at runtime rather than hard-coding them.
+
+**Page-config container (A-003 follow-up, OBSERVED).** The page has an inline script that sets `window.MW_CONFIG = '<string>'` [B@806731]. The value is a single-quoted JS string literal: `[`, `]` and `"` appear as `\x5b`, `\x5d` and `\x22`, `/` as `\/`, and non-ASCII characters appear raw. Once unescaped, it is valid JSON: a JSPB array of 12 elements.
+
+- `[0]` = a build date string and `[1]` = the build label.
+- `[2]` = flags, as `[name, int]` pairs.
+- `[3][0]` = consts, as `[name, valueMsg]` pairs. `valueMsg` is `[null, <int>]` or `[null, null, "<string>"]`, which the bundle reads as a oneof (2 = int, 3 = string) [B@809787].
+- The relay key const `A16fYe` is a string const. Look it up **by name**, because positions are INFERRED to change between builds.
+- The client re-fetches the same config from `<app base>/config?buildLabel=<label>` every 15 minutes, stripping a `)]}'` prefix [B@805721]. Whether that works without cookies is UNVERIFIED.
+- Never log const values. The official client logs `Setting const <name> to <value>` [B@808932]; don't copy that.
 
 All RPC paths have the form `<base>/$rpc/google.internal.communications.instantmessaging.v1.<Service>/<Method>` (OBSERVED [B@947353–972240], [B@1084459–1085631]).
 
@@ -211,15 +220,94 @@ The client also supports pairing through the user's signed-in Google account. In
 3. Confirm request: same field-2 init blob plus field 36 = bytes (confirmation / selected emoji material, b64 length 48 in the capture).
 4. Confirm response: field 2 = bytes (b64 length 48); field 4 = `[token bytes, TTL]`. TTL was 24 hours expressed in microseconds.
 
-**SignInGaia structure from the request builder (A-013 part 1, OBSERVED [B@1093001]):** f1 = AuthMessage (network `"GDitto"`); f2 = a device message with f1 = the device ID, f36 = optional bytes, and f39 = an optional BotGuard token; f3 = mode; f4 = `"GDitto"`. **SignInGaia carries no UKEY2 ClientInit** (OBSERVED). The UKEY2 exchange is probably carried by `GaiaPairingClient`'s pairing request over the messaging path, with a 300 s deadline [B@1101393] (INFERRED; A-013 part 2 pending).
+**SignInGaia structure from the request builder (A-013 part 1, OBSERVED [B@1093001]):** f1 = AuthMessage (network `"GDitto"`); f2 = a device message with f1 = the device ID, f36 = optional bytes, and f39 = an optional BotGuard token; f3 = mode; f4 = `"GDitto"`. **SignInGaia carries no UKEY2 ClientInit** (OBSERVED). The UKEY2 exchange is carried by `GaiaPairingClient`'s pairing request over the messaging path (OBSERVED, A-013 part 2; see §4.2.1).
 
 - **Mode 1** [B@1093386] is a lookup. Response f3 is a repeated list, entry f1 is decoded as UTF-8 text, and `NOT_FOUND` (code 5) means an empty list (OBSERVED).
 - **Mode 0** [B@~1094470] is the sign-in. Response f4.f1 = token and f4.f2 = lifetime in microseconds, capped by a client config value. Response f2 is decoded as UTF-8 text and matched against the mode-1 list entries' f1 (OBSERVED).
-- The HAR "init" above is therefore mode 1 and the "confirm" is mode 0 (mode 0 is omitted as the JSPB default) (INFERRED). The "emoji-candidate list" is more likely the mode-1 registration list, and the 36-byte confirm f2 is likely a UUID string (INFERRED). The ≈33-byte f2.f1 value is the device ID; its size matches a compressed P-256 point (INFERRED). "Field 36" in the capture is f2.f36 (OBSERVED in the builder).
+- The HAR "init" above is therefore mode 1 and the "confirm" is mode 0 (mode 0 is omitted as the JSPB default) (INFERRED). The "emoji-candidate list" is more likely the mode-1 registration list, and the 36-byte confirm f2 is likely a UUID string (INFERRED). **Device ID (A-013 part 2, OBSERVED):** device f1 is a DeviceId **message** {f1 = enum 3, f2 = string} [B@722726], [B@723098]. The web client fills f2 with `"messages-web-"` followed by either the page constant `DUSI_HASH` [B@804658] or a fresh lower-cased random ID [B@1096360], then persists it. This replaces the earlier "compressed P-256 point" reading (withdrawn). **f36** = the serialized message {f3: 32 fresh random bytes}, which is 34 bytes (b64 length 48) [B@1098826]. It is not emoji material. "Field 36" in the capture is f2.f36 (OBSERVED in the builder).
 - **BotGuard (OBSERVED [B@1089513–1090101], [B@~1092700], [B@1093188]):** a BotGuard VM backed by `waa-pa.googleapis.com` (`Waa/Create`, `Waa/Ping`) produces a token that the client attaches at device f39 of SignInGaia mode 0 (flow 3), and at f13.f39 of a second, unidentified Gaia request (flow 2). It does this only when a server-delivered flag is on. If token generation fails, the client sends the request without the token. Whether the server requires the token is **UNVERIFIED** (OPEN-QUESTIONS §19). If it does, Gaia pairing from a non-browser process is very likely blocked (INFERRED).
-- **ToS notice (OBSERVED [B@1101393]):** `GaiaPairingClient` writes this literal into request f8 when its mode value is 0 (empty string otherwise): *"This is an undocumented API. Use or access of undocumented Google APIs without express authorization is prohibited per the Google API Terms of Service (https://developers.google.com/terms)."* The owner must review this before any public listing.
+- **ToS notice (OBSERVED [B@1101393]):** `GaiaPairingClient` writes this literal into the **round-2** pairing request's f8 when the round-1 response's f9 version value is 0 or absent (it is read with default 0 and capped at ≤ 0), and an empty string if f9 is negative. Round 1 never carries f8 (A-015). In practice it is sent on every round 2: *"This is an undocumented API. Use or access of undocumented Google APIs without express authorization is prohibited per the Google API Terms of Service (https://developers.google.com/terms)."* The owner must review this before any public listing.
 
-`CANCEL_GAIA_PAIRING` remains UNVERIFIED. The exact mapping from UKEY2 handshake messages onto SignInGaia field 2 subfields beyond type=3 is still partly UNVERIFIED.
+`CANCEL_GAIA_PAIRING` remains UNVERIFIED.
+
+#### 4.2.1 Pairing rounds, keys and destination (A-013 part 2, A-015; OBSERVED unless marked)
+
+**Order** [B@1111850]: SignInGaia mode 1 (lookup) → choose the destination → SignInGaia mode 0 (token) → open `ReceiveMessages` → round 1 → round 2 → store the keys.
+
+**Destination choice** [B@1108527], [B@1111291], [B@1110530], [B@1109153]:
+
+1. From the mode-1 list, keep entries whose f3 type is 1 or 4.
+2. Parse each entry's f8 as {f1 enabled, f2 time ms, f4 pre-warm} and keep enabled entries.
+3. Pick the entry with the largest f2.
+4. Reject it if its f7 last-update time (µs) is older than a client-config day limit.
+5. The entry's **f1 bytes** become the destination, stored decoded as UTF-8 text.
+
+**Pairing request** (schema [B@385305]):
+
+- f1 = session ID, a fresh lower-cased random ID per attempt.
+- f2 = browser info [B@1086151].
+- f3 = the client's server-adjusted clock time (ms INFERRED); the same value in both rounds.
+- f4 = UKEY2 wrapper {f1 type, f2 serialized message}.
+- f5 = 1, f6 = 1, f7 = 0, **on round 1 only** [B@1102530]. Each is written through a "clear if equal to default" setter [B@31240], so f7 = 0 is not serialized. Round 2 sets only f1–f4 and f8 [B@1101267].
+- f8 = the ToS notice on round 2 (above).
+
+**Transport** [B@1051105], [B@1051293]: unencrypted, 300 s deadline. Action **44** goes to every candidate with qN = 20, and action **45** goes to the responder with qN = 2. See §6.1 for how the destination is addressed.
+
+**Round 1** [B@1102530] carries a type-2 ClientInit [B@781510]:
+
+- version 1;
+- 32 random bytes;
+- a commitment {f1 = 100, f2 = SHA-512 of the serialized client-finish wrapper};
+- next_protocol `"AES_256_CBC-HMAC_SHA256"`.
+
+**Round-1 response** [B@1103140–1103600]:
+
+- f4 must echo the session ID, and the responder must be one of the candidates.
+- f1 = status (0 = OK) and f2 = error code.
+- **f3 = bool, must be true** [B@1103327].
+- f5 = UKEY2 wrapper of type 3 (ServerInit: version 1, a 32-byte random value, cipher 100, and P-256 {x, y} with the 33-byte strip and 32-byte pad).
+- f6 ≤ 1, **f7 ≤ 1 (1 = rev1 keys)** and f9 ≤ 0 [B@1101066].
+
+**Round 2** [B@1101267] carries a type-4 ClientFinish {f1 public key {f1 = 1, f2 {f1 x, f2 y}}}, with 0x00-prefixed coordinates [B@195949]. **Round-2 response:** f4 echo, f1 status, and f8 = an optional AES-GCM blob, decrypted with the first payload key and holding fields {f2 bytes, f3 string, f4 string}. Its meanings are UNVERIFIED, so skip it in v1.
+
+**Keys** [B@195193]:
+
+| Output | IKM | salt | info |
+|---|---|---|---|
+| `S` | SHA-256 of the raw 32-byte ECDH X coordinate | | |
+| auth key (emoji source) | `S` | `"UKEY2 v1 auth"` | ClientInit wrapper ‖ ServerInit wrapper, as serialized (binary INFERRED) |
+| next key `N` | `S` | `"UKEY2 v1 next"` | same |
+| client key | `N` | D2D salt [B@782160] | `"client"` |
+| server key | `N` | D2D salt | `"server"` |
+
+All outputs are HKDF-SHA-256 with 32-byte output, exported raw.
+
+**rev1** (round-1 f7 = 1) [B@1099525], [B@195623]:
+
+1. `h(k)`: h = 1, then for each signed byte, h = (31h + byte) | 0.
+2. `first` = the key with the smaller h; a tie picks the server key.
+3. IKM = SHA-256(D2D salt ‖ first ‖ other).
+4. key1 = HKDF(IKM, `"Ditto salt 1"`, `"Ditto info 1"`) and key2 = HKDF(IKM, `"Ditto salt 2"`, `"Ditto info 2"`).
+
+With f7 = 0, the raw client and server keys are used.
+
+**Storage:** key1, or the client key, is stored as `g_crypto_msg_enc_key` (the **AES** key). key2, or the server key, is stored as `g_crypto_msg_hmac` (the **HMAC** key) [B@900177], [B@1078408], [B@1112071]. The destination and the session ID are stored alongside.
+
+#### 4.2.2 Hosted note
+
+`SignInGaia` uses `fg: 2`, which means Google session cookies. A hosted connector without the user's cookies therefore can't run Google-account pairing (OBSERVED for the call option; refusal is INFERRED). See §3 and OPEN-QUESTIONS §17–§18.
+
+#### 4.2.3 Verification emoji (A-015, OBSERVED [P@484686–494473])
+
+The pair page receives the **auth key** and the round-1 **f6** value [B@1112207].
+
+1. `n` = big-endian uint32 of auth key bytes 0–3 [P@491449].
+2. If f6 ≥ 1: emoji = `rev1[n % 308]`. If f6 is 0 or absent: emoji = `original[n % 305]` [P@492230].
+3. The rev1 list is the original list with duplicates removed (first occurrence kept), then the 14 additions appended in order, then the 10 deletions removed [P@484686].
+4. f6 > 1 is unsupported (one code path throws), and the round-1 cap already rejects it.
+5. The page also announces a 3-digit code for screen readers [P@489777], [P@492805]: m = n % 1000, and the digits are `m % 10`, `Math.round(m/10) % 10`, `Math.round(m/100) % 10` (`Math.round`, not floor).
+6. The tables, check hashes and a spec-team test vector are in `EMOJI-TABLES.md`.
+7. Pair-page errors include "No available phones to pair with" (status 6, which routes to setup) [P@489587] and "The user selected the wrong verification code" [P@493360].
 
 ### 4.3 Auth token lifecycle: OBSERVED [B@728600–730173], [B@719172]
 
@@ -251,7 +339,7 @@ Application payloads are wrapped in a small "encrypted container" protobuf:
 
 - **Scheme 2 (the default when encrypting).** The client generates a random 16-byte counter block. It encrypts the payload with AES-CTR using the 32-byte AES key (AES-256). It then computes HMAC-SHA256 with the HMAC key over **ciphertext ‖ IV**, in that order, and keeps the full 32-byte tag. Decryption checks that the IV is 16 bytes and compares the tag in constant time before it decrypts [B@848979].
 - **Scheme 1.** This is AES-GCM with a 12-byte random nonce and a 128-bit tag, keyed with the **first 16 bytes** of the AES key (JWK `alg:"A128GCM"`). The client accepts scheme 1 on input when WebCrypto is available [B@848398].
-- Live capture note (VERIFIED-LIVE / CONTRADICTED): action-envelope field 5 on the wire was an opaque blob (lengths 51–55 bytes for small requests) that did **not** parse as the nested `{scheme, iv, ciphertext, hmac}` protobuf. That favors a flattened ciphertext layout on the wire, with the nested container existing only inside the JS crypto helper. Algorithms above remain OBSERVED in JS and are still unverified against a known-plaintext encrypt/decrypt test. Unencrypted actions (44, 45, 48) place clear protobuf in field 3 instead.
+- Live capture note (VERIFIED-LIVE / CONTRADICTED): action-envelope field 5 on the wire was an opaque blob (lengths 51–55 bytes for small requests) that did **not** parse as the nested `{scheme, iv, ciphertext, hmac}` protobuf. That favors a flattened ciphertext layout on the wire, with the nested container existing only inside the JS crypto helper. Algorithms above remain OBSERVED in JS and are still unverified against a known-plaintext encrypt/decrypt test. Unencrypted actions (44, 45, 48) place clear protobuf in field 3 of the outbound envelope instead. Inbound, plaintext is in response-envelope field 5 and ciphertext in field 8 (§6.2).
 
 ## 6. Request and response envelope
 
@@ -270,11 +358,11 @@ Each phone-bound action is built in three layers.
 | 6 | Session ID, bytes len=36 (uuid). VERIFIED-LIVE present once the browser session is active. |
 
 **(b) Relay `SendMessage` request (VERIFIED-LIVE).** JSPB fields:
-- Field 1 = destination device identity.
-- Field 2 = Message: f1=messageId (uuid), f2=message type (**19** for all phone-bound RPCs in the capture), f12=serialized action envelope, f23=`[null, qN]` where qN is a small int hint (2 common; 16 with action 1; 20 with action 44).
+- Field 1 = in **Google-account mode, the account's Id, not the phone's**: {f1 = 16, f2 = the signed-in account's email (page constant `GA_EMAIL` [B@804551]), f3 = `"GDitto"`} [B@1099025] (OBSERVED, A-015; this corrects the earlier "destination device identity" reading). Never log it. In QR mode, the paired phone identity is INFERRED (§4.1 step 4).
+- Field 2 = Message: f1=messageId (uuid), f2=message type (**19** for all phone-bound RPCs in the capture), f5 = 0, f12=serialized action envelope, f23=`[null, qN]` where qN is a small int hint (2 by default; 16 with action 1; 20 with action 44) [B@1079931].
 - Field 3 = AuthMessage.
 - Field 5 = optional deadline in microseconds (observed 300000000 = 5 min, 86400000000 = 24 h).
-- Field 9 = optional `[bytes len=36]`. Meaning and when it is present are UNVERIFIED (Q-008).
+- Field 9 = **repeated registration-ID bytes that select the phone(s)** [B@1098597] (OBSERVED, A-015). Round 1 lists every candidate and round 2 the responder. Other calls with no explicit targets use [the stored destination as UTF-8 bytes]. The live 36-byte value fits a UUID-string registration ID (INFERRED). Its JSPB form (base64 string or other) is UNVERIFIED.
 
 Encoding notes (Q-008): the capture walker reported f12 as protobuf fields with byte lengths, which fits a **base64 string of a binary-protobuf envelope** inside the JSPB (INFERRED). Envelope f1/f6 are 36-byte values (UUID text form INFERRED). qN values recorded: 2 (most), 16 (action 1), 20 (action 44); any other qN is UNVERIFIED. Deadline per action is UNVERIFIED. As a working rule, READ → 24 h (`864E5` accompanies most READs in JS) and WRITE → 5 min (INFERRED).
 
@@ -284,11 +372,26 @@ The HTTP response is only a small relay ack (`[[null, digits], digits]`), not th
 
 ### 6.2 Responses from the phone
 
-Responses do not come back on the `SendMessage` HTTP response. They arrive asynchronously on the `ReceiveMessages` stream and are matched to requests by request ID (INFERRED from the request-ID bookkeeping in `_.QI` [B@1048322]). In a decoded response envelope:
+Responses do not come back on the `SendMessage` HTTP response. They arrive asynchronously on the `ReceiveMessages` stream and are matched to requests by envelope f1, the request ID [B@1045827], [B@1048078] (OBSERVED, A-015).
 
-- Field 5 holds the (encrypted) response payload, which the client decrypts and parses with the action's response type.
-- Field 9, when true, means **"session preempted"**: another browser tab or client has become the active session. The client then goes inactive with reason `INACTIVE_PREEMPTED_RPC`.
-- The field path from a stream element to this envelope, and to the relay message ID used in `AckMessages`, is **UNVERIFIED**. The ack ID is INFERRED to be the inbound relay Message.f1 UUID, mirroring outbound. Whether the inbound Message type is 19 is UNVERIFIED (Q-008).
+- **Relay message:** the client handles an inbound relay message only when its **f2 = 19** [B@1069061]. Its **f12** = the response envelope bytes, its **f1** = its own ID (logged as "tachyonId"; INFERRED to be the `AckMessages` ID), and its f7 = a time value used for clock skew.
+- **Response envelope** (schema [B@368936]). This is a different message from the outbound envelope:
+
+| Field | Meaning |
+|---|---|
+| 1 | Request ID (string) |
+| 2 | Message (UNVERIFIED meaning) |
+| 3 | Timestamp, µs (int64) |
+| 4 | Action type |
+| 5 | **Plaintext** payload bytes |
+| 6 | bool (UNVERIFIED) |
+| 8 | **Encrypted** payload bytes |
+| 9 | bool, **"session preempted"**: the client goes inactive with reason `INACTIVE_PREEMPTED_RPC` |
+| 10, 11 | bytes. f11 is decrypted separately (an account-migration notice, INFERRED) |
+
+- **Plaintext or encrypted:** for actions **44, 45 and 47** (and action 16 when its plaintext type is 14) the client reads the payload in the clear from **f5**. For everything else it decrypts **f8** and writes the result into f5 before parsing [B@1069498], [B@1069778]. This corrects the earlier note that f5 holds the encrypted response.
+- **`ReceiveMessages` request** [B@739513]: f1 = AuthMessage and f4 = {f1 = start timestamp µs}. The start timestamp is the last seen value − 1, or else (server time − 60 s) × 1000 [B@735540].
+- **AuthMessage** [B@729780], [B@1094378]: f1 = request ID, f3 = network (`"GDitto"` in Google-account mode), f6 = token bytes (from SignInGaia response f4.f1), f7 = config. Before a call with the default option, the client refreshes the token once 95 % of its lifetime has passed [B@728364].
 
 ## 7. Action catalog
 
