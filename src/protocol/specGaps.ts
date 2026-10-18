@@ -7,6 +7,10 @@ export const SPEC_GAPS = {
   "Q-002": "Field number carrying the SPKI public key inside RegisterPhoneRelay f4 key-data submessage",
   "Q-003": "Which embedded API key is sent as X-Goog-Api-Key for Pairing/Messaging in QR mode",
   "Q-004": "Location of the route/type=14 field and its payload bytes within a ReceiveMessages stream element, and whether the payload is binary protobuf or JSPB",
+  "Q-008": "SendMessage Message.f12 envelope encoding, qN/deadline per action, and the inbound path to the response envelope and relay message id",
+  "Q-009": "Plaintext request/response field layouts for actions 16, 31, 1, 2, 9, 3, 17",
+  "Q-010": "Conversation and Message object schemas",
+  "Q-011": "QR-mode lifecycle: RegisterRefresh host/network, RevokeRelayPairing layout, keep-alive, activation",
 } as const;
 
 export type SpecGapId = keyof typeof SPEC_GAPS;
