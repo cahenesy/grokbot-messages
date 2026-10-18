@@ -11,6 +11,7 @@ import { QrPairing } from "../pairing/qrPairing.js";
 import { pairedFromStreamElement } from "../protocol/pairing.js";
 import { callBinary } from "../transport/relay.js";
 import { receiveMessages } from "../transport/receive.js";
+import { apiKeyProvider } from "../transport/pageConfig.js";
 
 const VERSION = "0.0.1";
 
@@ -63,14 +64,15 @@ async function getPairing(): Promise<QrPairing> {
   });
   await page.start();
   const store = SessionStore.fromEnv();
-  const apiKey = () => optionalEnv("GOOGLE_MESSAGES_API_KEY");
+  // ${GOOGLE_MESSAGES_API_KEY} overrides; otherwise read page-config A16fYe at runtime (A-003).
+  const apiKey = apiKeyProvider(() => optionalEnv("GOOGLE_MESSAGES_API_KEY"));
   pairing = new QrPairing({
     page,
     userAgent: `grokbot-messages/${VERSION}`,
-    registerPhoneRelay: (body) => callBinary({ apiKey: apiKey() }, "Pairing", "RegisterPhoneRelay", body),
+    registerPhoneRelay: async (body) => callBinary({ apiKey: await apiKey() }, "Pairing", "RegisterPhoneRelay", body),
     waitForPaired: async (_token, signal) => {
       // ReceiveMessages request body and the route-14 path are Q-004; these throw SpecGapError until specified.
-      for await (const el of receiveMessages({ apiKey: apiKey(), signal })) {
+      for await (const el of receiveMessages({ apiKey: await apiKey(), signal })) {
         const p = el.response === undefined ? undefined : pairedFromStreamElement(el.response);
         if (p) return p;
       }

@@ -14,7 +14,7 @@ Status: ✅ spec/answer; 🟡 from implementer's bundle read, **pending spec-tea
 | RPC path prefix | `/$rpc/google.internal.communications.instantmessaging.v1.` | §2 | ✅ | `transport/relay.ts` |
 | `X-User-Agent` | `grpc-web-javascript/0.1` | §3, A-003 | ✅ | `transport/relay.ts`, `transport/receive.ts` |
 | Content types | `application/x-protobuf` (Pairing), `application/json+protobuf` (Messaging/Registration) | §3, A-003 | ✅ | `transport/relay.ts` |
-| API key source | page-config constant `A16fYe` | [B@811680], [B@1083605], [B@1094258] | 🟡 (Q-003, #3) | `specGaps.ts` (runtime read not yet built) |
+| API key source | page-config const `A16fYe` in `window.MW_CONFIG` ([3][0] list, `[name, [null, null, str]]`), read at runtime; env override | A-003 follow-up (#3), [B@811680], [B@806731] | ✅ | `transport/pageConfig.ts` |
 | QR base URL | `https://support.google.com/messages/?p=web_computer` | §4.1 step 3 (INFERRED) | ✅ (library only; QR not exposed, A-007) | `protocol/pairing.ts` |
 
 ## AuthMessage and identities
@@ -86,10 +86,22 @@ Status: ✅ spec/answer; 🟡 from implementer's bundle read, **pending spec-tea
 | GenericPublicKey | {1 type EC_P256 = 1, 2 {1 x, 2 y}} | `securemessage.proto` | ✅ | `crypto/ukey2.ts` |
 | Key schedule labels | "UKEY2 v1 auth", "UKEY2 v1 next", "client", "server" | §4.2 | ✅ | `crypto/ukey2.ts` |
 | Ditto labels | "Ditto salt 1/2", "Ditto info 1/2" | §4.2 [B@1099375] | ✅ | `crypto/ukey2.ts` |
-| Ditto key ordering rules | — | — | ⛔ Q-013 (#15) | `crypto/ukey2.ts` |
-| SignInGaia request | f1 auth (GDitto), f2 device {f1 device ID, f36 opt, f39 opt anti-abuse}, f3 mode, f4 "GDitto" | A-013 [B@1093001] | ✅ | `protocol/signInGaia.ts` |
+| Ditto key ordering | h = 1; h = (31h + signed byte) \| 0; smaller h first, tie → server; IKM = SHA-256(salt ‖ first ‖ other); key1 → AES, key2 → HMAC | A-013 pt 2 [B@195200], [B@1099525], SPEC §4.2 | ✅ | `crypto/ukey2.ts` |
+| rev1 selector | round-1 response f7 = 1; f7 = 0 → raw client/server keys (client→AES INFERRED) | A-013 pt 2 [B@1102309] | ✅ | `crypto/ukey2.ts` |
+| next_protocol | `"AES_256_CBC-HMAC_SHA256"` | A-013 pt 2 [B@781510] | ✅ | `crypto/ukey2.ts` |
+| ClientFinished coords | 0x00-prefixed (33 bytes) | A-013 pt 2 [B@195949] | ✅ | `crypto/ukey2.ts` |
+| HKDF inputs | IKM SHA-256(ECDH X); salt = label, info = ClientInit wrapper ‖ ServerInit wrapper (binary INFERRED) | A-013 pt 2 [B@195324], [B@195697], [B@194835] | ✅ | `crypto/ukey2.ts` |
+| Pairing request | f1 session ID, f2 browser, f3 time (ms INFERRED), f4 UKEY2 wrapper, f5 1, f6 1, f7 0, f8 notice | A-013 pt 2 [B@385305] | ✅ | `protocol/gaiaPairing.ts` |
+| Pairing rounds | action 44 (ClientInit, all candidates), 45 (ClientFinish, responder); unencrypted; 300 s deadline | A-013 pt 2 [B@1102530], [B@1101267], [B@1051105] | ✅ | `protocol/gaiaPairing.ts` |
+| Round-1 response | f1 status, f2 error, f3, f4 echo, f5 ServerInit wrapper, f6 ≤ 1, f7 ≤ 1, f9 ≤ 0 | A-013 pt 2 [B@1102900–1103600], [B@1101066] | ✅ | `protocol/gaiaPairing.ts` |
+| Round-2 response | f4 echo, f1 status, f8 optional AES-GCM blob (skipped) | A-013 pt 2 [B@1102106], [B@1112239] | ✅ | `protocol/gaiaPairing.ts` |
+| Notice literal | Google's "undocumented API … Terms of Service" string in f8 | A-013 [B@1101393] | ✅ | `protocol/gaiaPairing.ts` |
+| Emoji rendering | — | — | ⛔ Q-013 (#15) | — |
+| SignInGaia request | f1 auth (GDitto), f2 device {f1 DeviceId, f36 opt, f39 opt anti-abuse}, f3 mode, f4 "GDitto" | A-013 [B@1093001] | ✅ | `protocol/signInGaia.ts` |
+| DeviceId | [3, "messages-web-<lower-cased random id>"] (UUID form is our choice) | A-013 pt 2 [B@722726], [B@1096360] | ✅ | `protocol/signInGaia.ts` |
+| f36 | serialized {f3: 32 random bytes} (34 bytes) | A-013 pt 2 [B@1098826] | ✅ | `protocol/signInGaia.ts` |
+| Destination choice | lookup entries type 1/4, f8 {f1 enabled, f2 time ms, f4 prewarm} enabled, max f2; f7 µs age limit (config, UNVERIFIED); entry f1 bytes = destination | A-013 pt 2 [B@1108527], [B@1111291], [B@1110530], [B@1109153] | ✅ | `protocol/signInGaia.ts` |
 | SignInGaia modes | 1 lookup (resp f3 list, entry f1 UTF-8), 0 sign-in (resp f2 UTF-8 ID, f4 token); NOT_FOUND (5) = empty | A-013 [B@1093386], [B@~1094470] | ✅ | `protocol/signInGaia.ts` |
-| Device-ID origin, f36, UKEY2 placement, emoji | — | — | ⛔ Q-013 part 2 (#15) | — |
 | Relay base (Gaia) | `https://instantmessaging-pa.clients6.google.com` | §2 (`tkZp9e`), §0.1.1 | ✅ | — |
 | Cookie sources | SAPISID → APISID → __Secure-3PAPISID; __Secure-1PAPISID; __Secure-3PAPISID | A-012 [B@311997–312100] | ✅ | `session/googleAuth.ts` |
 | Auth schemes | SAPISIDHASH, SAPISID1PHASH, SAPISID3PHASH | A-012 [B@312700–313300] | ✅ | `session/googleAuth.ts` |

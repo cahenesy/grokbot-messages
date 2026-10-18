@@ -31,13 +31,18 @@ export interface RegisterPhoneRelayInput {
  * Key data is f4 = { f6 = { f1 = 2, f2 = SPKI DER } } per the public bundle
  * [B@1083605 `vJ`, B@722929 `oOa`, B@723205 `tOa`] (DEVLOG 2026-10-18). Pending spec-team review (#2).
  */
+/** Browser details message [B@1085900] / [B@1086151], shared by QR and Gaia pairing. */
+export function encodeBrowserDetails(b: BrowserDetails): PbWriter {
+  return new PbWriter()
+    .string(1, b.userAgent)
+    .varint(2, b.browserType)
+    .string(3, b.os)
+    .varint(5, b.flag5 ?? false)
+    .varint(6, b.deviceKind ?? 1);
+}
+
 export function encodeRegisterPhoneRelay(i: RegisterPhoneRelayInput): Uint8Array {
-  const browser = new PbWriter()
-    .string(1, i.browser.userAgent)
-    .varint(2, i.browser.browserType)
-    .string(3, i.browser.os)
-    .varint(5, i.browser.flag5 ?? false)
-    .varint(6, i.browser.deviceKind ?? 1);
+  const browser = encodeBrowserDetails(i.browser);
   const key = new PbWriter().varint(1, 2).bytes(2, i.spkiDer);
   return new PbWriter()
     .message(1, authHeaderPb("Bugle", i.requestId))

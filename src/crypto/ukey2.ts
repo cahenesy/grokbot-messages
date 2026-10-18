@@ -4,7 +4,6 @@
 
 import { createECDH, createHash, hkdfSync, randomBytes, type ECDH } from "node:crypto";
 import { PbWriter, decode, getBytes, getMessage, getVarint } from "../protocol/protobuf.js";
-import { SpecGapError } from "../protocol/specGaps.js";
 
 /** Standard UKEY2/D2D salt (ukey2 d2d_crypto_ops.cc `kSalt`; SPEC §4.2 says take it from the library). */
 export const D2D_SALT = Buffer.from("82aa55a0d397f88346ca1cee8d3909b95f13fa7deb1d4ab38376b8256da85510", "hex");
@@ -31,10 +30,17 @@ export function normalizeCoordinate(c: Uint8Array): Uint8Array {
   return out;
 }
 
-/** GenericPublicKey {1: type EC_P256, 2: EcP256PublicKey {1: x, 2: y}} (securemessage.proto). */
-export function encodeGenericPublicKey(x: Uint8Array, y: Uint8Array): Uint8Array {
-  return new PbWriter().varint(1, EC_P256).message(2, new PbWriter().bytes(1, x).bytes(2, y)).finish();
+/**
+ * GenericPublicKey {1: type EC_P256, 2: EcP256PublicKey {1: x, 2: y}} (securemessage.proto).
+ * The web client's ClientFinished prefixes each 32-byte coordinate with 0x00 [B@195949] (A-013 part 2).
+ */
+export function encodeGenericPublicKey(x: Uint8Array, y: Uint8Array, zeroPrefix = false): Uint8Array {
+  const c = (v: Uint8Array) => (zeroPrefix ? Buffer.concat([Buffer.from([0]), v]) : v);
+  return new PbWriter().varint(1, EC_P256).message(2, new PbWriter().bytes(1, c(x)).bytes(2, c(y))).finish();
 }
+
+/** ClientInit next_protocol used by the web client [B@781510] (A-013 part 2). */
+export const NEXT_PROTOCOL = "AES_256_CBC-HMAC_SHA256";
 
 export function decodeGenericPublicKey(b: Uint8Array): { x: Uint8Array; y: Uint8Array } {
   const f = decode(b);
@@ -68,10 +74,10 @@ export interface ClientHandshake {
  * Builds ClientInit {1 version, 2 random(32), 3 [CipherCommitment {1 cipher 100, 2 SHA-512(clientFinish)}], 4 next_protocol}
  * and the ClientFinished {1 public_key} it commits to (SPEC §4.2; ukey.proto).
  */
-export function startClientHandshake(nextProtocol?: string): ClientHandshake {
+export function startClientHandshake(nextProtocol: string | undefined = NEXT_PROTOCOL): ClientHandshake {
   const ecdh = createECDH("prime256v1");
   const pub = ecdh.generateKeys(); // 0x04 ‖ X ‖ Y
-  const clientFinish = wrapUkey2(Ukey2Type.CLIENT_FINISH, new PbWriter().bytes(1, encodeGenericPublicKey(pub.subarray(1, 33), pub.subarray(33))).finish());
+  const clientFinish = wrapUkey2(Ukey2Type.CLIENT_FINISH, new PbWriter().bytes(1, encodeGenericPublicKey(pub.subarray(1, 33), pub.subarray(33), true)).finish());
   const commitment = createHash("sha512").update(clientFinish).digest();
   const init = new PbWriter()
     .varint(1, UKEY2_VERSION)
@@ -116,36 +122,33 @@ export function deriveUkey2Keys(ecdh: ECDH, server: { x: Uint8Array; y: Uint8Arr
   return { authString, nextSecret, clientKey: hkdf32(nextSecret, D2D_SALT, "client"), serverKey: hkdf32(nextSecret, D2D_SALT, "server") };
 }
 
-export interface DittoKeyOrdering {
-  /** Treat bytes as signed (Java-style) when hashing. */
-  signedBytes: boolean;
-  /** Wrap the running hash to int32. */
-  int32: boolean;
-  /** Key with the smaller hash first. */
-  ascending: boolean;
-}
-
-/** h = 31·h + b over the bytes, per SPEC §4.2 "31-multiplier hash". */
-export function hash31(b: Uint8Array, o: Pick<DittoKeyOrdering, "signedBytes" | "int32">): bigint {
-  let h = 0n;
-  for (const x of b) {
-    h = 31n * h + BigInt(o.signedBytes && x > 127 ? x - 256 : x);
-    if (o.int32) h = BigInt.asIntN(32, h);
-  }
+/**
+ * Java `Arrays.hashCode(byte[])` pattern (A-013 part 2, [B@195200]): h = 1; for each byte,
+ * h = (31·h + signed_byte) | 0, in 32-bit signed arithmetic.
+ */
+export function hash31(b: Uint8Array): number {
+  let h = 1;
+  for (const x of b) h = (Math.imul(31, h) + (x > 127 ? x - 256 : x)) | 0;
   return h;
 }
 
+export interface PayloadKeyPair {
+  aesKey: Uint8Array;
+  hmacKey: Uint8Array;
+}
+
 /**
- * DERIVE_GAIA_PAIRING_REV1_KEYS (SPEC §4.2 [B@1099375]): order client/server keys by hash31,
- * digest = SHA-256(D2D salt ‖ k1 ‖ k2), AES = HKDF(digest, "Ditto salt 1", "Ditto info 1"),
- * HMAC = HKDF(digest, "Ditto salt 2", "Ditto info 2"). The hash's exact rules are Q-013.
+ * Session payload keys after the UKEY2 rounds (A-013 part 2, [B@1102309], [B@1099525], [B@1112062]).
+ * - rev1 (round-1 response f7 = 1): first = key with the smaller h (strict <, so a tie picks the
+ *   server key); IKM = SHA-256(D2D salt ‖ first ‖ other); key1 = HKDF(IKM, "Ditto salt 1", "Ditto info 1"),
+ *   key2 = HKDF(IKM, "Ditto salt 2", "Ditto info 2"). Per SPEC §4.2, key1 is the AES key and key2 the HMAC key.
+ * - f7 = 0: the raw client and server keys. Mapping client→AES, server→HMAC is INFERRED from key1/key2
+ *   replacing client/server in that order.
  */
-export function deriveDittoPayloadKeys(k: Pick<Ukey2Keys, "clientKey" | "serverKey">, ordering?: DittoKeyOrdering): { aesKey: Uint8Array; hmacKey: Uint8Array } {
-  if (!ordering) throw new SpecGapError("Q-013");
-  const hc = hash31(k.clientKey, ordering);
-  const hs = hash31(k.serverKey, ordering);
-  const clientFirst = ordering.ascending ? hc <= hs : hc >= hs;
-  const [k1, k2] = clientFirst ? [k.clientKey, k.serverKey] : [k.serverKey, k.clientKey];
-  const digest = createHash("sha256").update(D2D_SALT).update(k1).update(k2).digest();
-  return { aesKey: hkdf32(digest, "Ditto salt 1", "Ditto info 1"), hmacKey: hkdf32(digest, "Ditto salt 2", "Ditto info 2") };
+export function derivePayloadKeys(k: Pick<Ukey2Keys, "clientKey" | "serverKey">, rev1: boolean): PayloadKeyPair {
+  if (!rev1) return { aesKey: k.clientKey, hmacKey: k.serverKey };
+  const clientFirst = hash31(k.clientKey) < hash31(k.serverKey);
+  const [first, other] = clientFirst ? [k.clientKey, k.serverKey] : [k.serverKey, k.clientKey];
+  const ikm = createHash("sha256").update(D2D_SALT).update(first).update(other).digest();
+  return { aesKey: hkdf32(ikm, "Ditto salt 1", "Ditto info 1"), hmacKey: hkdf32(ikm, "Ditto salt 2", "Ditto info 2") };
 }

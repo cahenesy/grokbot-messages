@@ -1,11 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { createECDH, createHash, hkdfSync } from "node:crypto";
 import {
-  D2D_SALT, P256_SHA512, Ukey2Type, decodeGenericPublicKey, deriveDittoPayloadKeys, deriveUkey2Keys, encodeGenericPublicKey,
+  D2D_SALT, NEXT_PROTOCOL, P256_SHA512, Ukey2Type, decodeGenericPublicKey, derivePayloadKeys, deriveUkey2Keys, encodeGenericPublicKey,
   hash31, normalizeCoordinate, parseServerInit, startClientHandshake, unwrapUkey2, wrapUkey2,
 } from "../src/crypto/ukey2.js";
 import { PbWriter, decode, getBytes, getMessage, getVarint } from "../src/protocol/protobuf.js";
-import { SpecGapError } from "../src/protocol/specGaps.js";
 
 describe("UKEY2", () => {
   it("D2D salt is 32 bytes", () => expect(D2D_SALT.length).toBe(32));
@@ -54,21 +53,42 @@ describe("UKEY2", () => {
   });
 });
 
-describe("Ditto payload keys", () => {
-  const keys = { clientKey: new Uint8Array(32).fill(1), serverKey: new Uint8Array(32).fill(2) };
-  it("refuses until the ordering rules are specified (Q-013)", () => {
-    expect(() => deriveDittoPayloadKeys(keys)).toThrow(SpecGapError);
+describe("payload keys (A-013 part 2)", () => {
+  it("hash31 matches Java Arrays.hashCode with signed bytes", () => {
+    expect(hash31(new Uint8Array([]))).toBe(1);
+    expect(hash31(new Uint8Array([1, 2]))).toBe(994); // (31*(31*1+1))+2
+    expect(hash31(new Uint8Array([0x80]))).toBe(31 - 128); // signed byte -128
+    expect(hash31(new Uint8Array([0xff, 0xff]))).toBe(31 * (31 - 1) - 1);
+    // 32-bit wraparound over a long input stays an int32
+    const h = hash31(new Uint8Array(64).fill(0xc8));
+    expect(h).toBe(h | 0);
   });
-  it("derives 32-byte keys and is symmetric in client/server once ordered", () => {
-    const o = { signedBytes: true, int32: true, ascending: true };
-    const a = deriveDittoPayloadKeys(keys, o);
-    const b = deriveDittoPayloadKeys({ clientKey: keys.serverKey, serverKey: keys.clientKey }, o);
-    expect(a.aesKey.length).toBe(32);
-    expect(Buffer.from(a.aesKey).equals(Buffer.from(b.aesKey))).toBe(true);
-    expect(Buffer.from(a.aesKey).equals(Buffer.from(a.hmacKey))).toBe(false);
+
+  it("rev1 orders by smaller hash, tie → server first, and is symmetric", () => {
+    const a = new Uint8Array(32).fill(1);
+    const b = new Uint8Array(32).fill(2);
+    const k1 = derivePayloadKeys({ clientKey: a, serverKey: b }, true);
+    const k2 = derivePayloadKeys({ clientKey: b, serverKey: a }, true);
+    expect(Buffer.from(k1.aesKey).equals(Buffer.from(k2.aesKey))).toBe(true);
+    const first = hash31(a) < hash31(b) ? a : b;
+    const other = first === a ? b : a;
+    const ikm = createHash("sha256").update(D2D_SALT).update(first).update(other).digest();
+    expect(Buffer.from(k1.aesKey).equals(Buffer.from(hkdfSync("sha256", ikm, "Ditto salt 1", "Ditto info 1", 32)))).toBe(true);
+    expect(Buffer.from(k1.hmacKey).equals(Buffer.from(hkdfSync("sha256", ikm, "Ditto salt 2", "Ditto info 2", 32)))).toBe(true);
   });
-  it("hash31 signed vs unsigned differ for high bytes", () => {
-    expect(hash31(new Uint8Array([200]), { signedBytes: true, int32: true })).toBe(-56n);
-    expect(hash31(new Uint8Array([200]), { signedBytes: false, int32: true })).toBe(200n);
+
+  it("f7 = 0 uses the raw client/server keys", () => {
+    const a = new Uint8Array(32).fill(1);
+    const b = new Uint8Array(32).fill(2);
+    expect(derivePayloadKeys({ clientKey: a, serverKey: b }, false)).toEqual({ aesKey: a, hmacKey: b });
+  });
+
+  it("client finish prefixes coordinates with 0x00; init carries next_protocol", () => {
+    const h = startClientHandshake();
+    const pk = decode(getBytes(decode(unwrapUkey2(h.clientFinish).data), 1)!);
+    const ec = getMessage(pk, 2)!;
+    expect(getBytes(ec, 1)!.length).toBe(33);
+    expect(getBytes(ec, 1)![0]).toBe(0);
+    expect(new TextDecoder().decode(getBytes(decode(unwrapUkey2(h.clientInit).data), 4)!)).toBe(NEXT_PROTOCOL);
   });
 });

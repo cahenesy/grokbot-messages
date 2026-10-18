@@ -34,3 +34,8 @@ Required by clean-room rule 5 (`docs/handoff/README.md`). This log names every U
 - `https://github.com/google/ukey2` @ `10fc737aa901e873a3367e7e26b88eb01cd55d69`: `src/main/proto/ukey.proto` (Ukey2Message / ClientInit / ServerInit / ClientFinished field numbers, cipher P256_SHA512 = 100), `src/main/proto/securemessage.proto` (GenericPublicKey, EcP256PublicKey), `src/main/cpp/src/securegcm/d2d_crypto_ops.cc` (`kSalt`, the D2D salt). Protocol facts only; no code copied.
 - A-012 (#14): SAPISIDHASH composition, cookie sources, origin rule → `src/session/googleAuth.ts`.
 - Further reading of UKEY2 library internals was stopped by a local tool-permission check; open points went to Q-013 (#15).
+
+## 2026-10-18 — A-013 part 2 (#15) and A-003 page-config follow-up (#3)
+
+- Implemented from the spec team's written answers only: DeviceId shape, f36, registration choice, UKEY2 rounds (actions 44/45), HKDF table, rev1 ordering, page-config `MW_CONFIG` reader. Test vectors use locally generated random keys.
+- Not exercised against Google's live servers. Live calls (runtime page read, RegisterPhoneRelay, pairing) wait on the owner's go-ahead.
