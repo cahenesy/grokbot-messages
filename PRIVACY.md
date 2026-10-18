@@ -6,7 +6,7 @@ grokbot-messages is open-source software that connects an MCP host (such as Grok
 
 ## What the connector handles
 
-- **Pairing:** Google-account pairing (you confirm a matching emoji on your phone) is the primary method.
+- **Pairing:** Google-account pairing (you confirm a matching emoji on your phone) is the primary method. It requires Google web-session cookies that **you supply**. Those cookies grant broad access to your whole Google account, not just Messages. They are stored only encrypted, never logged or returned to the host, and discarded after pairing where the protocol allows. Signing out of the browser session they came from invalidates them.
 - **Pairing and session material:** a device signing key, payload encryption keys, and auth tokens. These are stored only in an encrypted session file at `${GOOGLE_MESSAGES_SESSION_PATH}`, encrypted with a key derived from `${GOOGLE_MESSAGES_SESSION_KEY}`.
 - **Message content:** conversations, messages, and contact names that you ask the connector to read, and messages you explicitly confirm for sending. This content flows between Google's servers, the connector process, and the MCP host you use.
 

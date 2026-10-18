@@ -28,3 +28,9 @@ Required by clean-room rule 5 (`docs/handoff/README.md`). This log names every U
   - `TACHYON_CLIENT_INFO` [B@973382] builds the AuthMessage ConfigVersion as f3, f4, f5 = a three-part date, f7 = 4, f9 = 6. With the A-001 live values, that maps Year→f3, Month→f4, Day→f5, V1→f7, V2→f9. → Q-001
   - Gaia pairing client [B@~1101337]: writes Google's "undocumented API … prohibited per the Google API Terms of Service" notice into a request field (f8). The bundle also contains a BotGuard/`Waa` anti-abuse client [B@~1090216]; whether Gaia pairing requires it was not established.
 - Further bundle reading was stopped by a local tool-permission check. No API key values were recorded anywhere.
+
+## 2026-10-18 — Google UKEY2 library (rule 2 allowed source, Apache-2.0)
+
+- `https://github.com/google/ukey2` @ `10fc737aa901e873a3367e7e26b88eb01cd55d69`: `src/main/proto/ukey.proto` (Ukey2Message / ClientInit / ServerInit / ClientFinished field numbers, cipher P256_SHA512 = 100), `src/main/proto/securemessage.proto` (GenericPublicKey, EcP256PublicKey), `src/main/cpp/src/securegcm/d2d_crypto_ops.cc` (`kSalt`, the D2D salt). Protocol facts only; no code copied.
+- A-012 (#14): SAPISIDHASH composition, cookie sources, origin rule → `src/session/googleAuth.ts`.
+- Further reading of UKEY2 library internals was stopped by a local tool-permission check; open points went to Q-013 (#15).

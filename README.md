@@ -35,7 +35,10 @@ test/           unit tests against spec-defined layouts (no network)
 |---|---|
 | `${GOOGLE_MESSAGES_SESSION_PATH}` | Path to the encrypted session file |
 | `${GOOGLE_MESSAGES_SESSION_KEY}` | Passphrase (≥16 chars) used to encrypt the session file |
-| `${GOOGLE_MESSAGES_API_KEY}` | Relay API key (which key applies is an open spec question) |
+| `${GOOGLE_MESSAGES_API_KEY}` | Relay API key; to be replaced by a runtime read of the page config (#3) |
+| `${GOOGLE_MESSAGES_GOOGLE_COOKIES}` | **Optional.** Google web-session cookies, needed only for Google-account pairing |
+
+> ⚠️ **Google cookies grant broad access to your whole Google account, not just Messages.** Supply them only if you accept that. They are kept only in memory and in the encrypted session file, never logged or returned in tool output, and dropped after pairing where the protocol allows. Signing out of the browser session they came from invalidates them. If you don't want to share cookies, run the connector yourself (same package, locally or on your own server).
 
 Never commit real values. The session file is encrypted with AES-256-GCM using a scrypt-derived key.
 

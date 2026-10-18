@@ -74,3 +74,23 @@ Status: ✅ spec/answer; 🟡 from implementer's bundle read, **pending spec-tea
 | AckMessages | [AuthMessage, [ids]] | §8 | ✅ | `protocol/messaging.ts` |
 | Action numbers | 1, 2, 3, 9, 16, 17, 22, 31, 38 | §7 | ✅ | `protocol/messaging.ts` |
 | Stream element | {"1": response, "2": status} | §3 | ✅ | `transport/receive.ts` |
+
+## Google-account pairing (primary)
+
+| Constant | Value | Source | Status | Code |
+|---|---|---|---|---|
+| D2D salt | `82aa55a0…6da85510` (32 bytes) | §4.2; ukey2 `d2d_crypto_ops.cc` @10fc737 | ✅ | `crypto/ukey2.ts` |
+| UKEY2 message types | ALERT 1, CLIENT_INIT 2, SERVER_INIT 3, CLIENT_FINISH 4 | ukey2 `ukey.proto` | ✅ | `crypto/ukey2.ts` |
+| Cipher | P256_SHA512 = 100; version 1 | §4.2, `ukey.proto` | ✅ | `crypto/ukey2.ts` |
+| ClientInit / ServerInit / ClientFinished fields | 1 version, 2 random, 3 commitments{1 cipher, 2 commitment}, 4 next_protocol / 1,2,3 cipher,4 public_key / 1 public_key | `ukey.proto` | ✅ | `crypto/ukey2.ts` |
+| GenericPublicKey | {1 type EC_P256 = 1, 2 {1 x, 2 y}} | `securemessage.proto` | ✅ | `crypto/ukey2.ts` |
+| Key schedule labels | "UKEY2 v1 auth", "UKEY2 v1 next", "client", "server" | §4.2 | ✅ | `crypto/ukey2.ts` |
+| Ditto labels | "Ditto salt 1/2", "Ditto info 1/2" | §4.2 [B@1099375] | ✅ | `crypto/ukey2.ts` |
+| Ditto key ordering rules | — | — | ⛔ Q-013 (#15) | `crypto/ukey2.ts` |
+| SignInGaia mapping | — | — | ⛔ Q-013 (#15) | — |
+| Relay base (Gaia) | `https://instantmessaging-pa.clients6.google.com` | §2 (`tkZp9e`), §0.1.1 | ✅ | — |
+| Cookie sources | SAPISID → APISID → __Secure-3PAPISID; __Secure-1PAPISID; __Secure-3PAPISID | A-012 [B@311997–312100] | ✅ | `session/googleAuth.ts` |
+| Auth schemes | SAPISIDHASH, SAPISID1PHASH, SAPISID3PHASH | A-012 [B@312700–313300] | ✅ | `session/googleAuth.ts` |
+| Hash | SHA-1 hex; timestamped `<s>_<hex>` over `<s> <cookie> <origin>`; untimestamped `<hex>` | A-012 [B@298938] | ✅ (branch choice UNVERIFIED) | `session/googleAuth.ts` |
+| Origin | `https://messages.google.com` (rule [B@298200]) | A-012 | ✅ | `session/googleAuth.ts` |
+| `X-Goog-AuthUser` | `0` | A-012 (VERIFIED-LIVE) | ✅ | `session/googleAuth.ts` |

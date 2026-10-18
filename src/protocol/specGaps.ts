@@ -15,13 +15,17 @@ export const SPEC_GAPS = {
   "Q-009": "Plaintext request/response field layouts for actions 16, 31, 1, 2, 9, 3, 17",
   "Q-010": "Conversation and Message object schemas",
   "Q-011": "QR-mode lifecycle: RegisterRefresh host/network, RevokeRelayPairing layout, keep-alive, activation",
+  "Q-013": "SignInGaia UKEY2 mapping (type-3 blob, server-init location, emoji derivation, f36 and response f2) and Ditto key-ordering hash rules",
 } as const;
 
 export type SpecGapId = keyof typeof SPEC_GAPS;
 
+/** Q-NNN → GitHub issue number (they diverge from Q-012 on). */
+export const GAP_ISSUE: Record<SpecGapId, number> = { "Q-003": 3, "Q-004": 4, "Q-008": 8, "Q-009": 9, "Q-010": 10, "Q-011": 11, "Q-013": 15 };
+
 export class SpecGapError extends Error {
   constructor(readonly gap: SpecGapId) {
-    super(`Spec gap ${gap}: ${SPEC_GAPS[gap]} (GitHub issue #${Number(gap.slice(2))}, label spec-question)`);
+    super(`Spec gap ${gap}: ${SPEC_GAPS[gap]} (GitHub issue #${GAP_ISSUE[gap]}, label spec-question)`);
     this.name = "SpecGapError";
   }
 }
