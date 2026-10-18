@@ -1,6 +1,11 @@
 // Places where SPEC.md does not pin a wire detail. Code that reaches one of these
 // throws instead of guessing; each id matches a GitHub issue labelled spec-question.
 // Clean-room rule: fill these only from spec revisions or our own captures.
+//
+// Issue map without a runtime entry here:
+// - Q-005 (#5): browser-details f5/f6 meaning UNVERIFIED (A-005); the encoder omits them, so nothing throws.
+// - Q-006 (#6): process ruling, resolved — binding clean-room controls, see DEVLOG.md.
+// - Q-007 (#7): process ruling, resolved — Google-account pairing primary; QR never in tool output.
 
 export const SPEC_GAPS = {
   "Q-001": "Field numbers of ConfigVersion subfields (Year/Month/Day/V1/V2) inside AuthMessage f7",

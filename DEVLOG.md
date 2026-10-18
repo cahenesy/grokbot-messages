@@ -12,3 +12,8 @@ Required by clean-room rule 5 (`docs/handoff/README.md`). This log names every U
 - npm package metadata only (versions, license fields) for @modelcontextprotocol/sdk, zod, qrcode, vitest, typescript.
 - Not consulted: any item on the handoff do-not-open list.
 - Cursor plugin format: https://cursor.com/docs/plugins and https://cursor.com/docs/reference/plugins (manifest fields, `mcp.json`, `${VAR}` plugin variables, submission checklist; no license requirement stated beyond "open source").
+
+## 2026-10-18 — spec answers A-001…A-011 received (issues #1–#11)
+
+- Owner rulings: A-006 (clean-room controls, binding) and A-007 (Google-account pairing primary; QR never in tool output). QR tools removed from the MCP server.
+- **Clean-room attestation (Phase 1), 2026-10-18:** No source on the do-not-open list in `docs/handoff/README.md` rule 1 has been opened, searched for, or retrieved in the course of this project. Renewed each phase.

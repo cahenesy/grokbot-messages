@@ -6,6 +6,7 @@ grokbot-messages is open-source software that connects an MCP host (such as Grok
 
 ## What the connector handles
 
+- **Pairing:** Google-account pairing (you confirm a matching emoji on your phone) is the primary method.
 - **Pairing and session material:** a device signing key, payload encryption keys, and auth tokens. These are stored only in an encrypted session file at `${GOOGLE_MESSAGES_SESSION_PATH}`, encrypted with a key derived from `${GOOGLE_MESSAGES_SESSION_KEY}`.
 - **Message content:** conversations, messages, and contact names that you ask the connector to read, and messages you explicitly confirm for sending. This content flows between Google's servers, the connector process, and the MCP host you use.
 
@@ -16,7 +17,11 @@ Nothing. The project operates no servers, collects no telemetry, and has no acce
 ## Third parties
 
 - **Google** processes your messages under Google's own terms and privacy policy.
-- **Your MCP host** (e.g. Grok Bot) receives whatever tool results the connector returns to it, including message content and, during pairing, the pairing QR code. Its handling is governed by that host's privacy policy. When the host runs the connector on its cloud infrastructure, the encrypted session file lives there too.
+- **Your MCP host** (e.g. Grok Bot) receives whatever tool results the connector returns to it, such as message content you ask for. The connector **never** returns tokens, keys, pairing keys or QR codes in tool output. During Google-account pairing, the host sees only the emoji you are asked to match on your phone. The host's handling of tool results is governed by its own privacy policy.
+
+## Hosted connectors (e.g. Grok Bot's cloud computer)
+
+When the host runs the connector on cloud infrastructure dedicated to you, the encrypted session file (mode 0600) lives on that machine. Its passphrase comes from the host's secret/variable mechanism and is never written next to the file. **Limitation:** because the passphrase lives on the same host, the encryption protects against copies of the file leaking, but not against compromise of the host itself.
 
 ## Your controls
 

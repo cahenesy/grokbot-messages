@@ -14,7 +14,8 @@ Questions for the spec team are filed as GitHub issues with the `spec-question` 
 
 ## Design choices
 
-- **QR phone-relay pairing first.** Grok Bot runs MCP servers on a cloud computer, not on the user's machine, so Google-account pairing (which needs the user's Google browser cookies) is impractical there. QR pairing needs only a bearer token and keys the connector generates itself.
+- **Google-account (emoji) pairing is the primary path** (owner ruling, issue #7). QR pairing is secondary and is not exposed as a tool: its payload contains the long-lived payload keys, so it must never pass through tool output or logs.
+- **Hosted use.** On a per-user cloud host such as Grok Bot's, the encrypted session file and its passphrase live on the same machine. That protects against copies of the file, not against compromise of the host.
 - **Fail on unknowns.** Wherever the spec does not pin a wire detail, the code throws a `SpecGapError` naming the open question instead of guessing (`src/protocol/specGaps.ts`).
 
 ## Layout
@@ -41,8 +42,6 @@ Never commit real values. The session file is encrypted with AES-256-GCM using a
 ## Tools (Phase 1)
 
 - `get_session_status` — whether paired and when the token expires; never returns secrets.
-- `start_pairing` — registers with the relay and returns a QR code to scan in Google Messages → Device pairing → QR code scanner.
-- `complete_pairing` — waits for the phone to confirm the scan and stores the paired session.
 
 Sending messages will require explicit per-message user confirmation: a send is first prepared, which returns a one-time code bound to the exact text, and only a matching confirm call executes it (`src/mcp/confirm.ts`).
 
@@ -58,7 +57,7 @@ npm test
 npm run build
 ```
 
-Requires Node.js 22+.
+Requires Node.js 22+; CI and development use **Node.js 24**.
 
 ## Spec gaps
 
