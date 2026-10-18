@@ -1,6 +1,6 @@
 # Google Messages for Web Protocol: Clean-Room Behavioral Specification
 
-Version 0.3 (handoff), 2026-10-18. Clean-room behavioral specification for the implementation team. v0.3 adds the spec-team answers to implementer questions Q-001–Q-011 (§0.5) and marks the corresponding gaps inline.
+Version 0.4 (handoff), 2026-10-18. Clean-room behavioral specification for the implementation team. v0.3 added the spec-team answers to implementer questions Q-001–Q-011 (§0.5). v0.4 adds the Google web session header construction (A-012, §3), the single-use pairing page direction (revised A-012, §4.1), and the SignInGaia structure and BotGuard findings (A-013 part 1, §4.2).
 
 ## 0. How to read this document
 
@@ -138,7 +138,22 @@ The json+protobuf encoding is Google's positional JSON-array form of protobuf. A
 
 **Prewarm.** Before the first `SendMessage`, the client sends a `HEAD` request to the `SendMessage` URL with its auth headers and `content-type: application/x-protobuf`, which appears to warm the CORS preflight and connection (OBSERVED [B@1080825]).
 
-**Headers.** The client sends `X-Goog-Api-Key` on all relay calls. In Google-account mode it also sends cookie-based `Authorization: SAPISIDHASH …` with credentials. OBSERVED: the set `{"SAPISIDHASH","APISIDHASH"}` toggles `withCredentials` [B@948653], and `X-Goog-AuthUser` appears. How SAPISIDHASH is computed is standard Google web practice and is out of scope. `X-Goog-AuthUser` and `SAPISIDHASH` are Google-account-mode only; they are not expected in QR mode (INFERRED). Whether the server enforces `Origin`/`Referer` for non-browser clients is UNVERIFIED (Q-003).
+**Headers.** The client sends `X-Goog-Api-Key` on all relay calls, and `X-User-Agent: grpc-web-javascript/0.1` on every request (OBSERVED). QR mode is not expected to send `X-Goog-AuthUser` or `SAPISIDHASH` (INFERRED). Whether the server enforces `Origin`/`Referer` for non-browser clients is UNVERIFIED (Q-003).
+
+**Google web session headers (Google-account mode; A-012, from `mw_b.js`):**
+
+- **Cookie sources (OBSERVED [B@311997–312100], [B@312700]):** `SAPISID` (falling back to `APISID`, then `__Secure-3PAPISID`), plus `__Secure-1PAPISID` and `__Secure-3PAPISID` for the first-party and third-party variants.
+- **`Authorization` (OBSERVED [B@312700–313300]):** on an `https:` page, a space-separated list of up to three items: `SAPISIDHASH <v>` (from `SAPISID`), `SAPISID1PHASH <v>` (from `__Secure-1PAPISID`), `SAPISID3PHASH <v>` (from `__Secure-3PAPISID`). On a non-https page the client uses `APISID` with the `APISIDHASH` scheme.
+- **Hash (OBSERVED [B@298938]; SHA-1 confirmed by its five standard initial-state constants [B@40664]):** lowercase hex SHA-1 over space-joined parts.
+  - Timestamped branch: parts = `<unix seconds> <cookie value> <origin>`, value = `<unix seconds>_<hex digest>`. If extra key/value pairs are supplied, their values are joined with `:` and put in front, and their keys are joined and appended after another `_`.
+  - Untimestamped branch: parts = `<cookie value> <origin>`, value = `<hex digest>`.
+  - Which branch the relay calls use is **UNVERIFIED** (OPEN-QUESTIONS §17).
+- **Origin string (OBSERVED [B@298200]):** derived from the page URL. It is lowercased, the path, query and fragment are stripped, and the port is kept only if it isn't the default (80 for http, 443 for https). For the official client that is `https://messages.google.com` (INFERRED; not seen in a capture).
+- **`withCredentials` (OBSERVED [B@948653], [B@966344]):** cookies are sent when the `Authorization` scheme is `SAPISIDHASH` or `APISIDHASH`, or when the RPC client was built with credentials.
+- **`X-Goog-AuthUser`:** the account index. It was `0` in every live capture (VERIFIED-LIVE). It stays `0` only when the paired account is the first one signed in to that browser (INFERRED).
+- **Per-call header selection (OBSERVED [B@1094258]):** the Google-account auth provider returns only `X-Goog-Api-Key` when a call's option `fg === 1`, and adds the session headers otherwise. `SignInGaia` uses `fg: 2` (OBSERVED). The `fg: 1` call sites found so far are a connectivity check [B@733884], one method of the service wrapper [B@1079138] and a QR-provider registration call [B@1083681] (OBSERVED). None was found on `Messaging/*`.
+- **Unknowns** (OPEN-QUESTIONS §17): which cookies the server actually checks (the hash only needs the `*APISID` cookies; `SID`-family validation is INFERRED), and whether `Messaging/*` and `RegisterRefresh` still need cookies after `SignInGaia` returns the token.
+- **Hosted connector rule (owner direction, revised A-012):** pasting the user's Google cookies is **not** a primary or default setup path. At most it is an advanced, clearly warned option for people running their own copy, with the A-012 controls (optional variable, minimal set, memory plus encrypted session only, never logged or returned, fail closed).
 
 ## 4. Authentication, tokens, and pairing
 
@@ -167,6 +182,8 @@ The json+protobuf encoding is Google's positional JSON-array form of protobuf. A
    
    A device identity is a small message with three fields: (1) a type / registration enum (VERIFIED-LIVE value `16` for the GDitto browser device; other values such as `1` appear for RCS identities), (2) a string source ID (VERIFIED-LIVE length 19 in live captures), and (3) a string network (`"GDitto"`, `"RCS"`, or `"Bugle"`). The earlier reading of field 1 as a large int64 user ID is CONTRADICTED by the live capture.
 
+   **Connector pairing page (owner direction, revised A-012 and A-014):** the hosted connector shows the QR only on a short-lived, single-use pairing page that the user opens in their own browser. Tools return only a link and a status (`waiting`, `paired`, `expired`, `failed`), never the QR image, URL or payload. Link controls: at least 128 bits of randomness; a lifetime of no more than the smaller of 120 s and the client-computed QR expiry; bound to its first opener (an `HttpOnly`, `SameSite=Strict` cookie, plus `Secure` except on loopback); `HEAD` and link-preview fetches ignored; dead after one successful pairing; status-only logs. Phone-only users open the link on a second screen. Whether QR pairing still completes for US accounts, and whether a hosted connector can expose an HTTPS address for the page, are **UNVERIFIED** (OPEN-QUESTIONS §18).
+
 5. **QR refresh.** If the QR code expires before it is scanned, the client calls `RefreshPhoneRelay`. The call is authenticated with the token from step 2, and its response field 2 holds a new pairing key, from which a new QR code is built [B@1210378].
 
 6. **Revocation.** `RevokeRelayPairing` takes field 2 = the browser device identity (source ID). It is sent on sign-out [B@1084238]. Whether f2 is the full identity message or only the source-ID string is UNVERIFIED. That f1 is the auth header is INFERRED from §4.3 (Q-011).
@@ -193,6 +210,14 @@ The client also supports pairing through the user's signed-in Google account. In
 2. Init response: field 3 carries browser device identity, emoji-candidate list, and pairing metadata. No token yet.
 3. Confirm request: same field-2 init blob plus field 36 = bytes (confirmation / selected emoji material, b64 length 48 in the capture).
 4. Confirm response: field 2 = bytes (b64 length 48); field 4 = `[token bytes, TTL]`. TTL was 24 hours expressed in microseconds.
+
+**SignInGaia structure from the request builder (A-013 part 1, OBSERVED [B@1093001]):** f1 = AuthMessage (network `"GDitto"`); f2 = a device message with f1 = the device ID, f36 = optional bytes, and f39 = an optional BotGuard token; f3 = mode; f4 = `"GDitto"`. **SignInGaia carries no UKEY2 ClientInit** (OBSERVED). The UKEY2 exchange is probably carried by `GaiaPairingClient`'s pairing request over the messaging path, with a 300 s deadline [B@1101393] (INFERRED; A-013 part 2 pending).
+
+- **Mode 1** [B@1093386] is a lookup. Response f3 is a repeated list, entry f1 is decoded as UTF-8 text, and `NOT_FOUND` (code 5) means an empty list (OBSERVED).
+- **Mode 0** [B@~1094470] is the sign-in. Response f4.f1 = token and f4.f2 = lifetime in microseconds, capped by a client config value. Response f2 is decoded as UTF-8 text and matched against the mode-1 list entries' f1 (OBSERVED).
+- The HAR "init" above is therefore mode 1 and the "confirm" is mode 0 (mode 0 is omitted as the JSPB default) (INFERRED). The "emoji-candidate list" is more likely the mode-1 registration list, and the 36-byte confirm f2 is likely a UUID string (INFERRED). The ≈33-byte f2.f1 value is the device ID; its size matches a compressed P-256 point (INFERRED). "Field 36" in the capture is f2.f36 (OBSERVED in the builder).
+- **BotGuard (OBSERVED [B@1089513–1090101], [B@~1092700], [B@1093188]):** a BotGuard VM backed by `waa-pa.googleapis.com` (`Waa/Create`, `Waa/Ping`) produces a token that the client attaches at device f39 of SignInGaia mode 0 (flow 3), and at f13.f39 of a second, unidentified Gaia request (flow 2). It does this only when a server-delivered flag is on. If token generation fails, the client sends the request without the token. Whether the server requires the token is **UNVERIFIED** (OPEN-QUESTIONS §19). If it does, Gaia pairing from a non-browser process is very likely blocked (INFERRED).
+- **ToS notice (OBSERVED [B@1101393]):** `GaiaPairingClient` writes this literal into request f8 when its mode value is 0 (empty string otherwise): *"This is an undocumented API. Use or access of undocumented Google APIs without express authorization is prohibited per the Google API Terms of Service (https://developers.google.com/terms)."* The owner must review this before any public listing.
 
 `CANCEL_GAIA_PAIRING` remains UNVERIFIED. The exact mapping from UKEY2 handshake messages onto SignInGaia field 2 subfields beyond type=3 is still partly UNVERIFIED.
 

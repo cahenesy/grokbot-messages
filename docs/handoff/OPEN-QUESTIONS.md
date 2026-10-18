@@ -1,6 +1,6 @@
 # Open Questions (for the implementer's own client)
 
-Updated 2026-10-18 (v0.3: adds §11–§16 from implementer questions Q-001–Q-011; Gaia pairing is the primary path by owner direction). Items already resolved by the spec team's live captures of Google's official web client are summarized in `SPEC.md` (§0.1–§0.4). This file lists **remaining** questions. Each has a concrete test you can run **after your own client pairs** (prefer Google-account / emoji pairing, then self-chat only).
+Updated 2026-10-18 (v0.3: adds §11–§16 from implementer questions Q-001–Q-011; v0.4: adds §17–§19 from Q-012–Q-014; Gaia pairing is the primary path by owner direction). Items already resolved by the spec team's live captures of Google's official web client are summarized in `SPEC.md` (§0.1–§0.4). This file lists **remaining** questions. Each has a concrete test you can run **after your own client pairs** (prefer Google-account / emoji pairing, then self-chat only).
 
 Do not use third-party traffic, other people's numbers, or excluded implementations to answer these. When a test settles a question, notify the spec team via `QUESTIONS.md` so they can revise `SPEC.md`.
 
@@ -131,6 +131,30 @@ Do not use third-party traffic, other people's numbers, or excluded implementati
 **Unknown:** the field number of the SPKI inside RegisterPhoneRelay f4 (search for the 91-byte value with prefix `30 59 30 13 …`); the QR-expiry field; which API key is used in QR mode; whether `Origin` is enforced; the route-14 element layout and encryption state.
 
 **Test:** Lower priority (Gaia is primary). Start QR pairing in the official client (no scan needed for RegisterPhoneRelay), walk the binary request/response, and record field paths, lengths and header names only. Remember that the QR is a secret (SPEC §4.1 step 3).
+
+---
+
+## 17. Google web session: header branch, minimal cookie set, token-only calls (Q-012)
+
+**Unknown:** whether relay calls use the timestamped or untimestamped SAPISIDHASH branch; which cookies the server actually checks; whether `Messaging/*` and `RegisterRefresh` work with the GDitto token alone after `SignInGaia`; how long a cookie set stays valid.
+
+**Test:** In DevTools on your own session, look at one `SignInGaia` request and one `Messaging/SendMessage` request. Record only whether `Authorization` is present, which schemes appear, and whether each value has the `<digits>_<40 hex>` shape. Replay a harmless call (action 31), removing cookies one at a time, and record the names that are required. After pairing, send action 1 and `RegisterRefresh` with no cookies and no `Authorization`, and record each status. Never record values.
+
+---
+
+## 18. Camera-free pairing, US QR availability, hosted pairing-page reachability (Q-014)
+
+**Unknown:** whether QR pairing still completes for a US account (Google's help page says it is "no longer available in the US"; the bundle has QR deprecation and migration dialogs, OBSERVED [B@1108270], [B@1107949]); whether the phone's Messages app accepts the QR URL as a tapped link (UNVERIFIED; don't ship it without a live proof, and keep the URL out of logs); whether Google-account pairing can run without the user's Google cookies on the host (credentialed cross-origin calls from a non-Google origin are INFERRED to be refused); whether a hosted connector can expose an HTTPS address for the pairing page.
+
+**Test:** Owner's phone, about two minutes: in Google Messages, is Device pairing → QR code scanner still offered? On `messages.google.com/web` in a private window, is a QR offered, or only the deprecation dialog? If both, scan once, confirm pairing completes, then unpair. Separately, from the connector's own origin, record only the CORS preflight status and response header names for `instantmessaging-pa.clients6.google.com`.
+
+---
+
+## 19. BotGuard token on SignInGaia (Q-013 item 8)
+
+**Unknown:** whether the server requires the BotGuard token at SignInGaia device f39 (SPEC §4.2), and whether the server flag that turns it on is set for ordinary accounts.
+
+**Test:** In your own capture of a SignInGaia mode-0 request, record only whether device f39 is present. If it is, record whether a mode-0 call without f39 succeeds, and its status. If calls without it are refused, report it straight away, because it decides whether Google-account pairing works from a non-browser connector.
 
 ---
 
