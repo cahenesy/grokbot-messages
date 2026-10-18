@@ -1,0 +1,12 @@
+node_modules/
+dist/
+coverage/
+.env
+.env.*
+# Session material, captures, and logs never go in the repo
+*.har
+captures/
+session/
+*.session
+*.session.json
+*.age
