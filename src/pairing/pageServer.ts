@@ -24,7 +24,28 @@ interface Attempt {
   qrSvg?: string; // cleared on success/expiry/failure
   expiresAt: number;
   status: PairingStatus;
+  /** Cookie value of the first browser to open the link (A-014: bind to first opener). */
+  opener?: string;
 }
+
+const OPENER_COOKIE = "gm_pair";
+
+/** Link-preview and crawler fetchers must not claim the link (A-014). */
+const PREVIEW_UA = /bot|crawler|spider|preview|facebookexternalhit|embedly|slack|discord|telegram|whatsapp|skype|linkedin|vkshare|pinterest|quora|outbrain|bitly|google-?read-?aloud/i;
+
+function cookieValue(req: IncomingMessage, name: string): string | undefined {
+  for (const part of (req.headers.cookie ?? "").split(";")) {
+    const i = part.indexOf("=");
+    if (i > 0 && part.slice(0, i).trim() === name) return part.slice(i + 1).trim();
+  }
+  return undefined;
+}
+
+const sameSecret = (a: string, b: string) => {
+  const x = Buffer.from(a);
+  const y = Buffer.from(b);
+  return x.length === y.length && timingSafeEqual(x, y);
+};
 
 const isLoopback = (h: string) => h === "localhost" || h === "127.0.0.1" || h === "::1" || h === "[::1]";
 
@@ -48,6 +69,9 @@ const SECURITY_HEADERS = {
 
 const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
+const CLAIMED = "This pairing link was already opened in another browser. Ask for a new link.";
+const PREVIEW = "Open this link in your browser to pair Google Messages.";
+
 const MESSAGES: Record<PairingStatus, string> = {
   waiting: "Open Google Messages on your phone → Device pairing → QR code scanner, and scan this code.",
   paired: "Paired. You can close this page.",
@@ -55,15 +79,16 @@ const MESSAGES: Record<PairingStatus, string> = {
   failed: "Pairing failed. Ask for a new link.",
 };
 
-function page(status: PairingStatus, qrSvg: string | undefined, nonce: string): string {
-  const qr = status === "waiting" && qrSvg ? `<div class="qr">${qrSvg}</div>` : "";
+function page(status: PairingStatus, qrSvg: string | undefined, nonce: string, override?: string): string {
+  const qr = !override && status === "waiting" && qrSvg ? `<div class="qr">${qrSvg}</div>` : "";
+  const poll = !override && status === "waiting";
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="referrer" content="no-referrer"><title>Pair Google Messages</title>
 <style nonce="${nonce}">body{font:16px system-ui,sans-serif;margin:0;padding:24px 16px;background:#fff;color:#111;display:flex;flex-direction:column;align-items:center;gap:16px}
 .qr svg{width:min(320px,80vw);height:auto;background:#fff;padding:8px}p{max-width:32em;text-align:center}
 @media (prefers-color-scheme:dark){body{background:#111;color:#eee}}</style></head>
-<body><h1>Pair Google Messages</h1>${qr}<p id="msg">${escapeHtml(MESSAGES[status])}</p>
-<script nonce="${nonce}">${status === "waiting" ? `(function(){var s=location.pathname+"/status";function t(){fetch(s,{cache:"no-store"}).then(function(r){return r.ok?r.json():{status:"expired"}}).then(function(j){if(j.status==="waiting"){setTimeout(t,2000);return}location.reload()}).catch(function(){setTimeout(t,4000)})}setTimeout(t,2000)})();` : ""}</script>
+<body><h1>Pair Google Messages</h1>${qr}<p id="msg">${escapeHtml(override ?? MESSAGES[status])}</p>
+<script nonce="${nonce}">${poll ? `(function(){var s=location.pathname+"/status";function t(){fetch(s,{cache:"no-store"}).then(function(r){return r.ok?r.json():{status:"expired"}}).then(function(j){if(j.status==="waiting"){setTimeout(t,2000);return}location.reload()}).catch(function(){setTimeout(t,4000)})}setTimeout(t,2000)})();` : ""}</script>
 </body></html>`;
 }
 
@@ -71,10 +96,11 @@ export class PairingPageServer {
   private server?: Server;
   private attempt?: Attempt;
   private readonly now: () => number;
+  private readonly secureCookie: boolean;
 
   constructor(private readonly o: PageServerOptions = {}) {
     this.now = o.now ?? Date.now;
-    if (o.publicBaseUrl) validatePublicBaseUrl(o.publicBaseUrl);
+    this.secureCookie = o.publicBaseUrl ? validatePublicBaseUrl(o.publicBaseUrl).protocol === "https:" : false;
   }
 
   async start(): Promise<void> {
@@ -145,14 +171,43 @@ export class PairingPageServer {
       res.writeHead(code, { ...SECURITY_HEADERS, "Content-Type": type, ...extra });
       res.end(body);
     };
+    const html = (body: string, extra: Record<string, string> = {}, nonce?: string) => {
+      const n = nonce ?? randomBytes(16).toString("base64");
+      const csp = `default-src 'none'; script-src 'nonce-${n}'; style-src 'nonce-${n}'; img-src data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'`;
+      send(200, "text/html; charset=utf-8", body, { "Content-Security-Policy": csp, ...extra });
+    };
+    // HEAD (and anything but GET) never claims the link (A-014).
+    if (req.method === "HEAD") return send(200, "text/plain; charset=utf-8", "");
     if (req.method !== "GET") return send(405, "text/plain; charset=utf-8", "Method not allowed");
     const m = /^\/pair\/([A-Za-z0-9_-]{43})(\/status)?$/.exec((req.url ?? "").split("?")[0]!);
     if (!m || !this.matches(m[1]!)) return send(404, "text/plain; charset=utf-8", "Not found");
     this.expireIfDue();
     const a = this.attempt!;
-    if (m[2]) return send(200, "application/json", JSON.stringify({ status: a.status }));
-    const nonce = randomBytes(16).toString("base64");
-    const csp = `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'nonce-${nonce}'; img-src data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'`;
-    send(200, "text/html; charset=utf-8", page(a.status, a.qrSvg, nonce), { "Content-Security-Policy": csp });
+    const isStatus = Boolean(m[2]);
+    const presented = cookieValue(req, OPENER_COOKIE);
+    const isOpener = a.opener !== undefined && presented !== undefined && sameSecret(presented, a.opener);
+
+    if (a.opener === undefined) {
+      if (isStatus) return send(403, "application/json", JSON.stringify({ status: "unavailable" }));
+      if (PREVIEW_UA.test(req.headers["user-agent"] ?? "")) {
+        const n = randomBytes(16).toString("base64");
+        return html(page(a.status, undefined, n, PREVIEW), {}, n);
+      }
+      if (a.status === "waiting") {
+        a.opener = randomBytes(32).toString("base64url");
+        const maxAge = Math.max(1, Math.ceil((a.expiresAt - this.now()) / 1000));
+        const cookie = `${OPENER_COOKIE}=${a.opener}; HttpOnly; SameSite=Strict; Path=/pair/${a.token}; Max-Age=${maxAge}${this.secureCookie ? "; Secure" : ""}`;
+        const n = randomBytes(16).toString("base64");
+        return html(page(a.status, a.qrSvg, n), { "Set-Cookie": cookie }, n);
+      }
+    } else if (!isOpener) {
+      if (isStatus) return send(403, "application/json", JSON.stringify({ status: "unavailable" }));
+      const n = randomBytes(16).toString("base64");
+      return html(page(a.status, undefined, n, CLAIMED), {}, n);
+    }
+
+    if (isStatus) return send(200, "application/json", JSON.stringify({ status: a.status }));
+    const n = randomBytes(16).toString("base64");
+    html(page(a.status, a.qrSvg, n), {}, n);
   }
 }

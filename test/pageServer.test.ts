@@ -23,7 +23,12 @@ describe("pairing page server", () => {
     const html = await res.text();
     expect(html).toContain("<svg");
     expect(html).not.toContain("ZmFrZS1maXh0dXJl"); // payload only as QR modules, not text
-    expect(await (await fetch(`${link}/status`)).json()).toEqual({ status: "waiting" });
+    const setCookie = res.headers.get("set-cookie")!;
+    expect(setCookie).toMatch(/HttpOnly/);
+    expect(setCookie).toMatch(/SameSite=Strict/);
+    expect(setCookie).not.toMatch(/Secure/); // loopback base
+    const cookie = setCookie.split(";")[0]!;
+    expect(await (await fetch(`${link}/status`, { headers: { cookie } })).json()).toEqual({ status: "waiting" });
 
     const wrong = link.replace(/.$/, (c) => (c === "A" ? "B" : "A"));
     expect((await fetch(wrong)).status).toBe(404);
@@ -35,8 +40,9 @@ describe("pairing page server", () => {
     srv = new PairingPageServer();
     await srv.start();
     const { link } = await srv.open(FAKE_QR, 60_000);
+    const cookie = (await fetch(link)).headers.get("set-cookie")!.split(";")[0]!;
     srv.setStatus("paired");
-    const html = await (await fetch(link)).text();
+    const html = await (await fetch(link, { headers: { cookie } })).text();
     expect(html).not.toContain("<svg");
     expect(html).toContain("Paired");
     expect(srv.status()).toBe("paired");
@@ -47,9 +53,42 @@ describe("pairing page server", () => {
     srv = new PairingPageServer({ now: () => now });
     await srv.start();
     const { link } = await srv.open(FAKE_QR, 5000);
+    const cookie = (await fetch(link)).headers.get("set-cookie")!.split(";")[0]!;
     now = 6000;
-    expect(await (await fetch(`${link}/status`)).json()).toEqual({ status: "expired" });
-    expect(await (await fetch(link)).text()).not.toContain("<svg");
+    expect(await (await fetch(`${link}/status`, { headers: { cookie } })).json()).toEqual({ status: "expired" });
+    expect(await (await fetch(link, { headers: { cookie } })).text()).not.toContain("<svg");
+    expect(srv.status()).toBe("expired");
+  });
+
+  it("binds to the first opener; other browsers get no QR (A-014)", async () => {
+    srv = new PairingPageServer();
+    await srv.start();
+    const { link } = await srv.open(FAKE_QR, 60_000);
+    // HEAD and link previews do not claim the link.
+    expect((await fetch(link, { method: "HEAD" })).status).toBe(200);
+    const preview = await (await fetch(link, { headers: { "user-agent": "Slackbot-LinkExpanding 1.0" } })).text();
+    expect(preview).not.toContain("<svg");
+    // First real browser claims it.
+    const first = await fetch(link, { headers: { "user-agent": "Mozilla/5.0" } });
+    expect(await first.text()).toContain("<svg");
+    const cookie = first.headers.get("set-cookie")!.split(";")[0]!;
+    // A second browser without the cookie is refused.
+    const other = await (await fetch(link, { headers: { "user-agent": "Mozilla/5.0" } })).text();
+    expect(other).not.toContain("<svg");
+    expect(other).toContain("already opened");
+    expect((await fetch(`${link}/status`)).status).toBe(403);
+    expect((await fetch(link, { headers: { cookie: "gm_pair=forged" } })).headers.get("set-cookie")).toBeNull();
+    // The opener still sees it.
+    expect(await (await fetch(link, { headers: { cookie } })).text()).toContain("<svg");
+  });
+
+  it("marks the opener cookie Secure behind an https base URL", async () => {
+    srv = new PairingPageServer({ publicBaseUrl: "https://pair.example.invalid" });
+    await srv.start();
+    const { link } = await srv.open(FAKE_QR, 60_000);
+    expect(link.startsWith("https://pair.example.invalid/pair/")).toBe(true);
+    const local = `http://127.0.0.1:${(srv as unknown as { server: { address(): { port: number } } }).server.address().port}${new URL(link).pathname}`;
+    expect((await fetch(local)).headers.get("set-cookie")).toMatch(/; Secure/);
   });
 
   it("a new attempt invalidates the previous link", async () => {

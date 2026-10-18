@@ -87,7 +87,9 @@ Status: ✅ spec/answer; 🟡 from implementer's bundle read, **pending spec-tea
 | Key schedule labels | "UKEY2 v1 auth", "UKEY2 v1 next", "client", "server" | §4.2 | ✅ | `crypto/ukey2.ts` |
 | Ditto labels | "Ditto salt 1/2", "Ditto info 1/2" | §4.2 [B@1099375] | ✅ | `crypto/ukey2.ts` |
 | Ditto key ordering rules | — | — | ⛔ Q-013 (#15) | `crypto/ukey2.ts` |
-| SignInGaia mapping | — | — | ⛔ Q-013 (#15) | — |
+| SignInGaia request | f1 auth (GDitto), f2 device {f1 device ID, f36 opt, f39 opt anti-abuse}, f3 mode, f4 "GDitto" | A-013 [B@1093001] | ✅ | `protocol/signInGaia.ts` |
+| SignInGaia modes | 1 lookup (resp f3 list, entry f1 UTF-8), 0 sign-in (resp f2 UTF-8 ID, f4 token); NOT_FOUND (5) = empty | A-013 [B@1093386], [B@~1094470] | ✅ | `protocol/signInGaia.ts` |
+| Device-ID origin, f36, UKEY2 placement, emoji | — | — | ⛔ Q-013 part 2 (#15) | — |
 | Relay base (Gaia) | `https://instantmessaging-pa.clients6.google.com` | §2 (`tkZp9e`), §0.1.1 | ✅ | — |
 | Cookie sources | SAPISID → APISID → __Secure-3PAPISID; __Secure-1PAPISID; __Secure-3PAPISID | A-012 [B@311997–312100] | ✅ | `session/googleAuth.ts` |
 | Auth schemes | SAPISIDHASH, SAPISID1PHASH, SAPISID3PHASH | A-012 [B@312700–313300] | ✅ | `session/googleAuth.ts` |
@@ -99,6 +101,7 @@ Status: ✅ spec/answer; 🟡 from implementer's bundle read, **pending spec-tea
 
 | Constant | Value | Rationale | Code |
 |---|---|---|---|
-| Link lifetime | 120 s | Must be ≤ the server QR expiry (field UNVERIFIED, Q-002, #2); short by design | `pairing/qrPairing.ts` |
+| Link lifetime | 120 s | ≤ min(120 s, QR expiry) per A-014; the QR-expiry field is UNVERIFIED (Q-002, #2) | `pairing/qrPairing.ts` |
+| First-opener binding | `gm_pair` cookie, HttpOnly, SameSite=Strict, Secure unless loopback, path-scoped; HEAD and preview UAs don't claim | A-014 (#16) | `pairing/pageServer.ts` |
 | Link token | 32 random bytes, base64url, compared in constant time | Unguessable single-use link | `pairing/pageServer.ts` |
 | Page headers | no-store, no-referrer, CSP `default-src 'none'` + nonces, frame-ancestors none | Keep the QR out of caches, referrers and frames | `pairing/pageServer.ts` |
