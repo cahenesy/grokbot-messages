@@ -14,7 +14,8 @@ Status: ✅ spec/answer; 🟡 from implementer's bundle read, **pending spec-tea
 | RPC path prefix | `/$rpc/google.internal.communications.instantmessaging.v1.` | §2 | ✅ | `transport/relay.ts` |
 | `X-User-Agent` | `grpc-web-javascript/0.1` | §3, A-003 | ✅ | `transport/relay.ts`, `transport/receive.ts` |
 | Content types | `application/x-protobuf` (Pairing), `application/json+protobuf` (Messaging/Registration) | §3, A-003 | ✅ | `transport/relay.ts` |
-| API key source | page-config const `A16fYe` in `window.MW_CONFIG` ([3][0] list, `[name, [null, null, str]]`), read at runtime; env override | A-003 follow-up (#3), [B@811680], [B@806731] | ✅ | `transport/pageConfig.ts` |
+| API key source | page-config const `A16fYe` in `window.MW_CONFIG` ([3][0] list, `[name, [null, null, str]]`), read at runtime; env override | A-003 follow-up (#3), [B@811680], [B@806731] | ✅ (VERIFIED-LIVE 2026-10-18 with the pinned UA) | `transport/pageConfig.ts` |
+| Page-fetch User-Agent | pinned current desktop Chrome UA (Linux); page fetch only; 200 without MW_CONFIG = failure | A-003 part 3 (#3), VERIFIED-LIVE table | ✅ | `transport/pageConfig.ts` |
 | QR base URL | `https://support.google.com/messages/?p=web_computer` | §4.1 step 3 (INFERRED) | ✅ (library only; QR not exposed, A-007) | `protocol/pairing.ts` |
 
 ## AuthMessage and identities
@@ -69,7 +70,9 @@ Status: ✅ spec/answer; 🟡 from implementer's bundle read, **pending spec-tea
 | Outbound envelope | f1 reqId, f2 action, f3 clear, f5 ciphertext, f6 sessionId | §6.1(a) [B@367611] | ✅ | `protocol/messaging.ts` |
 | Inbound envelope | f1 reqId, f3 ts µs, f4 action, f5 plaintext, f8 encrypted, f9 preempted | A-015 item 2 [B@368936] | ✅ | `protocol/messaging.ts` |
 | Clear responses | actions 44, 45, 47 in f5; others decrypt f8 | A-015 [B@1069498], [B@1069778] | ✅ | `protocol/messaging.ts` |
-| Relay message | f1 id, f2 type (19), f7 time, f12 envelope | A-015 [B@1069061] | ✅ | `protocol/messaging.ts` |
+| Relay message | f1 id, f2 type (19), f3 timestamp (last seen), f7 time, f12 envelope | A-015 [B@1069061], A-016 [B@737471] | ✅ | `protocol/messaging.ts` |
+| ReceiveMessages response | element "1"; f1 header; oneof f2 relay, f3 heartbeat, f4 batch start, f5 batch end, f6/f7 unknown | A-016 [B@948653], [B@732854], [B@740040], [B@737538] | ✅ | `protocol/messaging.ts` |
+| Relay dedup | by relay f1, 200-entry LRU | A-016 [B@737044] | ✅ | `protocol/messaging.ts` |
 | ReceiveMessages request | f1 AuthMessage, f4 {f1 start µs}; default (server ms − 60 s) × 1000 | A-015 [B@739513], [B@735540] | ✅ | `protocol/messaging.ts` |
 | Envelope in Message.f12 | base64 of binary protobuf | A-008 (INFERRED) | ⛔ Q-008 (gate kept until confirmed) | `protocol/messaging.ts` |
 | Message type | 19 | §6.1(b) | ✅ | `protocol/messaging.ts` |

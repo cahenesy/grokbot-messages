@@ -44,3 +44,4 @@ Required by clean-room rule 5 (`docs/handoff/README.md`). This log names every U
 
 - Unauthenticated GET of `https://messages.google.com/web/authentication` through `src/transport/pageConfig.ts`, no cookies. Logged only status and found/not-found.
 - Result: **HTTP 400** with UA `grokbot-messages/0.0.1` and with Node's default UA; `MW_CONFIG` not present. The earlier 2026-10-18 fetch with a Chrome-style UA (bundle read) got 200. No browser-UA retry was made: impersonating a browser is an owner decision.
+- Re-check with the pinned desktop-browser UA (A-003 part 3 ruling): `A16fYe` **found**; no value printed or stored.

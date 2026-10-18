@@ -65,7 +65,11 @@ async function getPairing(): Promise<QrPairing> {
   await page.start();
   const store = SessionStore.fromEnv();
   // ${GOOGLE_MESSAGES_API_KEY} overrides; otherwise read page-config A16fYe at runtime (A-003).
-  const apiKey = apiKeyProvider(() => optionalEnv("GOOGLE_MESSAGES_API_KEY"));
+  const apiKey = apiKeyProvider(
+    () => optionalEnv("GOOGLE_MESSAGES_API_KEY"),
+    undefined,
+    () => optionalEnv("GOOGLE_MESSAGES_PAGE_USER_AGENT"),
+  );
   pairing = new QrPairing({
     page,
     userAgent: `grokbot-messages/${VERSION}`,

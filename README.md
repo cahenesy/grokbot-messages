@@ -35,7 +35,8 @@ test/           unit tests against spec-defined layouts (no network)
 |---|---|
 | `${GOOGLE_MESSAGES_SESSION_PATH}` | Path to the encrypted session file |
 | `${GOOGLE_MESSAGES_SESSION_KEY}` | Passphrase (≥16 chars) used to encrypt the session file |
-| `${GOOGLE_MESSAGES_API_KEY}` | Relay API key; to be replaced by a runtime read of the page config (#3) |
+| `${GOOGLE_MESSAGES_API_KEY}` | **Optional** override. Normally read automatically from the public Messages web page |
+| `${GOOGLE_MESSAGES_PAGE_USER_AGENT}` | **Optional.** That page only serves its config to a current desktop browser User-Agent. The connector sends a pinned one for this single public fetch (not for any relay call). Override it here if it goes stale |
 | `${GOOGLE_MESSAGES_PAIRING_BASE_URL}` | **Optional.** HTTPS URL at which your browser reaches the pairing page (default: a local `http://127.0.0.1` address, for running the connector on your own machine) |
 
 Self-hosting extras: `GOOGLE_MESSAGES_PAIRING_BIND` / `GOOGLE_MESSAGES_PAIRING_PORT` set the pairing page's listen address and port.

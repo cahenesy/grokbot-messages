@@ -88,3 +88,26 @@ describe("A-015 inbound and Gaia addressing", () => {
     expect((m[1] as unknown[])[22]).toEqual([null, 20]);
   });
 });
+
+import { RelayDedup, decodeReceiveMessagesResponse } from "../src/protocol/messaging.js";
+
+describe("ReceiveMessages response (A-016)", () => {
+  it("decodes the oneof: f2 relay, f3 heartbeat, f4/f5 batch, f6/f7 unknown", () => {
+    const relay = decodeReceiveMessagesResponse([null, ["id1", 19, "99"]]);
+    expect(relay).toMatchObject({ kind: "relay", relay: { id: "id1", type: 19, timestamp: 99n } });
+    expect(decodeReceiveMessagesResponse([null, null, []]).kind).toBe("heartbeat");
+    expect(decodeReceiveMessagesResponse([null, null, null, []]).kind).toBe("batch-start");
+    expect(decodeReceiveMessagesResponse([null, null, null, null, []]).kind).toBe("batch-end");
+    expect(decodeReceiveMessagesResponse([null, null, null, null, null, null, []])).toEqual({ kind: "unknown", oneofCase: 7 });
+    expect(decodeReceiveMessagesResponse([[]]).kind).toBe("empty");
+  });
+
+  it("dedups relay ids in a bounded LRU", () => {
+    const d = new RelayDedup(2);
+    expect(d.firstSighting("a")).toBe(true);
+    expect(d.firstSighting("a")).toBe(false);
+    d.firstSighting("b");
+    d.firstSighting("c"); // evicts the least recently used ("a")
+    expect(d.firstSighting("a")).toBe(true);
+  });
+});

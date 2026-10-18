@@ -84,10 +84,15 @@ export function responsePayload(e: ResponseEnvelope, decrypt: (ciphertext: Uint8
   return decrypt(e.encrypted);
 }
 
-/** Inbound relay message (JSPB): f1 item ID ("tachyonId"), f2 type (handled only when 19), f7 time, f12 envelope bytes. */
+/**
+ * Inbound relay message (JSPB): f1 item ID ("tachyonId"), f2 type (19 = phone RPC; 14 = QR pairing event, §4.1),
+ * f3 timestamp (the "last seen" value for resuming the stream, A-016 [B@737471]), f7 time (clock skew, A-015),
+ * f12 envelope bytes.
+ */
 export interface RelayMessage {
   id: string;
   type: number;
+  timestamp?: bigint;
   timeMicros?: bigint;
   envelope?: Uint8Array;
 }
@@ -97,13 +102,49 @@ export function decodeRelayMessageJspb(v: unknown): RelayMessage {
   const type = field(v, 2);
   const env = field(v, 12);
   const t = field(v, 7);
+  const ts = field(v, 3);
   if (typeof id !== "string") throw new Error("relay message missing id");
-  return {
-    id,
-    type: Number(type ?? 0),
-    timeMicros: typeof t === "string" || typeof t === "number" ? BigInt(t) : undefined,
-    envelope: typeof env === "string" ? unb64(env) : undefined,
-  };
+  const big = (x: unknown) => (typeof x === "string" || typeof x === "number" ? BigInt(x) : undefined);
+  return { id, type: Number(type ?? 0), timestamp: big(ts), timeMicros: big(t), envelope: typeof env === "string" ? unb64(env) : undefined };
+}
+
+/**
+ * ReceiveMessages response (stream element "1"), A-016 [B@732854]: f1 header; oneof over f2–f7:
+ * f2 relay message, f3 heartbeat marker, f4 batch start, f5 batch end, f6/f7 unknown.
+ */
+export type StreamItem =
+  | { kind: "relay"; relay: RelayMessage }
+  | { kind: "heartbeat" }
+  | { kind: "batch-start" }
+  | { kind: "batch-end" }
+  | { kind: "unknown"; oneofCase: number }
+  | { kind: "empty" };
+
+export function decodeReceiveMessagesResponse(v: unknown): StreamItem {
+  const relay = field(v, 2);
+  if (relay !== undefined) return { kind: "relay", relay: decodeRelayMessageJspb(relay) };
+  if (field(v, 3) !== undefined) return { kind: "heartbeat" };
+  if (field(v, 4) !== undefined) return { kind: "batch-start" };
+  if (field(v, 5) !== undefined) return { kind: "batch-end" };
+  for (const n of [6, 7]) if (field(v, n) !== undefined) return { kind: "unknown", oneofCase: n };
+  return { kind: "empty" };
+}
+
+/** Relay-message dedup by f1 in a 200-entry LRU, as the official client does (A-016 [B@737044]). */
+export class RelayDedup {
+  private seen = new Map<string, true>();
+  constructor(private readonly capacity = 200) {}
+  /** True the first time an ID is seen. */
+  firstSighting(id: string): boolean {
+    if (this.seen.has(id)) {
+      this.seen.delete(id);
+      this.seen.set(id, true);
+      return false;
+    }
+    this.seen.set(id, true);
+    if (this.seen.size > this.capacity) this.seen.delete(this.seen.keys().next().value!);
+    return true;
+  }
 }
 
 /**

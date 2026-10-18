@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { apiKeyProvider, fetchApiKey, getConst, parseMwConfig, unescapeJsString } from "../src/transport/pageConfig.js";
+import { PAGE_FETCH_USER_AGENT, PageConfigError, apiKeyProvider, fetchApiKey, getConst, parseMwConfig, unescapeJsString } from "../src/transport/pageConfig.js";
 import { SpecGapError } from "../src/protocol/specGaps.js";
 
 // Synthetic page mirroring the documented structure; values are fake.
@@ -20,16 +20,32 @@ describe("page config (A-003 follow-up)", () => {
     expect(getConst(c, "missing")).toBeUndefined();
   });
 
-  it("fetches without cookies and fails closed with Q-003", async () => {
-    let sentCookie: string | null = "unset";
+  it("fetches once with the pinned browser UA, no cookies", async () => {
+    let sent: Headers | undefined;
+    let calls = 0;
     const ok = (async (_u: string, init: RequestInit) => {
-      sentCookie = new Headers(init.headers).get("cookie");
+      calls++;
+      sent = new Headers(init.headers);
       return new Response(html, { status: 200 });
     }) as unknown as typeof fetch;
     expect(await fetchApiKey(ok)).toBe("test-not-a-real-key");
-    expect(sentCookie).toBeNull();
-    const bad = (async () => new Response("<html></html>", { status: 200 })) as unknown as typeof fetch;
-    await expect(fetchApiKey(bad)).rejects.toBeInstanceOf(SpecGapError);
+    expect(sent!.get("cookie")).toBeNull();
+    expect(sent!.get("user-agent")).toBe(PAGE_FETCH_USER_AGENT);
+    expect(calls).toBe(1);
+  });
+
+  it("treats 400 and 200-without-MW_CONFIG alike, with an actionable message and no retry", async () => {
+    let calls = 0;
+    const r400 = (async () => (calls++, new Response("", { status: 400 }))) as unknown as typeof fetch;
+    await expect(fetchApiKey(r400)).rejects.toThrow(/GOOGLE_MESSAGES_PAGE_USER_AGENT/);
+    const oldPage = (async () => (calls++, new Response("<html>unsupported</html>", { status: 200 }))) as unknown as typeof fetch;
+    await expect(fetchApiKey(oldPage)).rejects.toBeInstanceOf(PageConfigError);
+    expect(calls).toBe(2);
+  });
+
+  it("config present but const missing → Q-003", async () => {
+    const noKey = html.replace("A16fYe", "Zzzzzz");
+    await expect(fetchApiKey((async () => new Response(noKey, { status: 200 })) as unknown as typeof fetch)).rejects.toBeInstanceOf(SpecGapError);
   });
 
   it("prefers the env override", async () => {

@@ -7,6 +7,21 @@
 import { SpecGapError } from "../protocol/specGaps.js";
 
 export const MESSAGES_WEB_PAGE = "https://messages.google.com/web/authentication";
+
+/**
+ * Pinned desktop-browser User-Agent for this public, unauthenticated page fetch ONLY. The page returns 400
+ * to non-browser UAs and an unsupported-browser page (no MW_CONFIG) to old ones. Approved by the spec team
+ * for this fetch only (A-003 part 3, https://github.com/cahenesy/grokbot-messages/issues/3). Relay calls keep
+ * the runtime default UA. Override: ${GOOGLE_MESSAGES_PAGE_USER_AGENT}. Update when it goes stale.
+ */
+export const PAGE_FETCH_USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36";
+
+export class PageConfigError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PageConfigError";
+  }
+}
 /** Page-config const holding the relay API key [B@811680] (A-003). */
 export const API_KEY_CONST = "A16fYe";
 
@@ -43,27 +58,40 @@ export function getConst(config: unknown[], name: string): string | number | und
   return undefined;
 }
 
-/** Fetches the public page (no cookies) and returns the API key, or throws SpecGapError("Q-003"). */
-export async function fetchApiKey(fetchImpl: typeof fetch = fetch): Promise<string> {
+const STALE_UA_HINT =
+  "the page did not include its client config; the pinned browser User-Agent is probably outdated. " +
+  "Set GOOGLE_MESSAGES_PAGE_USER_AGENT to a current desktop browser UA, or set GOOGLE_MESSAGES_API_KEY.";
+
+/**
+ * Fetches the public page once (no cookies, no retries) and returns the API key. A 400, or a 200 without
+ * MW_CONFIG (the unsupported-browser page), fails with an actionable error (A-003 part 3). Never logs values.
+ */
+export async function fetchApiKey(fetchImpl: typeof fetch = fetch, userAgent: string = PAGE_FETCH_USER_AGENT): Promise<string> {
+  let res: Response;
   try {
-    const res = await fetchImpl(MESSAGES_WEB_PAGE, { headers: { Accept: "text/html" }, redirect: "follow" });
-    if (res.ok) {
-      const key = getConst(parseMwConfig(await res.text()), API_KEY_CONST);
-      if (typeof key === "string" && key) return key;
-    }
+    res = await fetchImpl(MESSAGES_WEB_PAGE, { headers: { "User-Agent": userAgent, Accept: "text/html" }, redirect: "follow" });
   } catch {
-    // fall through: fail closed below, without echoing page content
+    throw new PageConfigError("could not reach messages.google.com to read the client config");
   }
-  throw new SpecGapError("Q-003");
+  if (!res.ok) throw new PageConfigError(`HTTP ${res.status} from the Messages web page: ${STALE_UA_HINT}`);
+  let config: unknown[];
+  try {
+    config = parseMwConfig(await res.text());
+  } catch {
+    throw new PageConfigError(`Messages web page returned no usable config: ${STALE_UA_HINT}`);
+  }
+  const key = getConst(config, API_KEY_CONST);
+  if (typeof key === "string" && key) return key;
+  throw new SpecGapError("Q-003"); // config present but the const moved or was renamed
 }
 
-/** Env override first, then a cached runtime read. */
-export function apiKeyProvider(override: () => string | undefined, fetchImpl?: typeof fetch): () => Promise<string> {
+/** Env override first, then a cached runtime read (one attempt per call; no retry loop). */
+export function apiKeyProvider(override: () => string | undefined, fetchImpl?: typeof fetch, userAgent?: () => string | undefined): () => Promise<string> {
   let cached: Promise<string> | undefined;
   return async () => {
     const o = override();
     if (o) return o;
-    cached ??= fetchApiKey(fetchImpl).catch((e) => {
+    cached ??= fetchApiKey(fetchImpl, userAgent?.() ?? PAGE_FETCH_USER_AGENT).catch((e) => {
       cached = undefined;
       throw e;
     });

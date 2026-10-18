@@ -27,11 +27,15 @@
       },
       "GOOGLE_MESSAGES_API_KEY": {
         "type": "string",
-        "description": "Relay API key (see spec issue #3)"
+        "description": "Optional override. Normally read automatically from the Messages web page."
       },
       "GOOGLE_MESSAGES_PAIRING_BASE_URL": {
         "type": "string",
         "description": "Optional. Public base URL at which the connector's single-use pairing page is reachable from your browser (defaults to a local http://127.0.0.1 address)."
+      },
+      "GOOGLE_MESSAGES_PAGE_USER_AGENT": {
+        "type": "string",
+        "description": "Optional. Browser User-Agent for the public Messages page fetch, if the built-in one goes stale."
       }
     },
     "required": [
