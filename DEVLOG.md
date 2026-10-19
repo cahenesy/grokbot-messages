@@ -50,3 +50,7 @@ Required by clean-room rule 5 (`docs/handoff/README.md`). This log names every U
 
 - Implemented the wire cipher (ct ‖ IV ‖ HMAC; empty plaintext passed through), the action 16/31/1/2/17 layouts, Conversation/Participant/Message/part decoders, push-update decoding (action 16 under the session ID; f7 → action 17), the stale-update filter, and `MessagesClient` (session activation, request matching, push routing).
 - Late QR scans (spec-team note on ff3ec43): we rely on server-side pairing-key expiry; on the first live run, scan just after the link expires and log only whether route 14 arrived.
+
+## 2026-10-19 — Phase 1–2 attestation renewal
+
+- **Clean-room attestation (Phases 1–2), 2026-10-19:** No source on the do-not-open list in `docs/handoff/README.md` rule 1 has been opened, searched for, or retrieved in the course of this project.
