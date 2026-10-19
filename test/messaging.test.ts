@@ -111,3 +111,13 @@ describe("ReceiveMessages response (A-016)", () => {
     expect(d.firstSighting("a")).toBe(true);
   });
 });
+
+describe("response authentication (security review)", () => {
+  const clearForged = { requestId: "r", action: 44, plaintext: new Uint8Array([1]), preempted: false };
+  it("rejects a reply whose action differs from the request's", () => {
+    expect(() => responsePayload(clearForged, () => new Uint8Array(), 1)).toThrow(/does not match/);
+  });
+  it("still accepts clear payloads for clear requests", () => {
+    expect([...responsePayload(clearForged, () => { throw new Error("no"); }, 44)]).toEqual([1]);
+  });
+});

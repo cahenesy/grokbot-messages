@@ -122,8 +122,16 @@ export function encryptPayload(keys: PayloadKeys, plaintext: Uint8Array, iv: Uin
   return new Uint8Array(Buffer.concat([ct, iv, mac(keys.hmacKey, ct, iv)]));
 }
 
-export function decryptPayload(keys: PayloadKeys, wire: Uint8Array): Uint8Array {
-  if (wire.length === 0) return new Uint8Array();
+/**
+ * Decrypts the wire form. A zero-length input is the protocol's unencrypted empty message (A-018) and
+ * carries no authentication, so it is accepted only when the caller passes `allowEmpty` for a response
+ * where an empty message is a legitimate answer (e.g. an all-defaults proto3 reply).
+ */
+export function decryptPayload(keys: PayloadKeys, wire: Uint8Array, o: { allowEmpty?: boolean } = {}): Uint8Array {
+  if (wire.length === 0) {
+    if (o.allowEmpty) return new Uint8Array();
+    throw new Error("empty encrypted payload not accepted here");
+  }
   if (wire.length < IV_LEN + TAG_LEN) throw new Error("encrypted payload shorter than 48 bytes");
   const tag = wire.subarray(wire.length - TAG_LEN);
   const iv = wire.subarray(wire.length - TAG_LEN - IV_LEN, wire.length - TAG_LEN);

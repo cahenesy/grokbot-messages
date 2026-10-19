@@ -74,13 +74,18 @@ export function decodeResponseEnvelopePb(b: Uint8Array): ResponseEnvelope {
 /** Actions whose responses arrive in the clear in f5; all others are decrypted from f8 [B@1069498], [B@1069778]. */
 export const CLEAR_RESPONSE_ACTIONS: ReadonlySet<number> = new Set([44, 45, 47]);
 
-/** Response payload: f5 for clear actions, else `decrypt(f8)`. (Action 16 with plaintext type 14 is also clear; not handled.) */
-export function responsePayload(e: ResponseEnvelope, decrypt: (ciphertext: Uint8Array) => Uint8Array): Uint8Array {
+/**
+ * Response payload: f5 for clear actions, else `decrypt(f8)`. (Action 16 with plaintext type 14 is also clear; not handled.)
+ * `expectedAction` is the action of the request this answers. Clear (unauthenticated) payloads are accepted only
+ * when that request was itself a clear action, so a reply cannot opt out of encryption by claiming action 44/45/47.
+ */
+export function responsePayload(e: ResponseEnvelope, decrypt: (ciphertext: Uint8Array) => Uint8Array, expectedAction?: number): Uint8Array {
+  if (expectedAction !== undefined && e.action !== expectedAction) throw new Error(`response action ${e.action} does not match request action ${expectedAction}`);
   if (CLEAR_RESPONSE_ACTIONS.has(e.action)) {
     if (!e.plaintext) throw new Error(`action ${e.action} response missing plaintext`);
     return e.plaintext;
   }
-  if (!e.encrypted) throw new Error(`action ${e.action} response missing ciphertext`);
+  if (e.encrypted === undefined) throw new Error(`action ${e.action} response missing ciphertext`);
   return decrypt(e.encrypted);
 }
 

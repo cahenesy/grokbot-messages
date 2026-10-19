@@ -54,7 +54,8 @@ describe("wire cipher (A-018 item 5)", () => {
 
   it("passes empty plaintext through unencrypted and rejects short or tampered input", () => {
     expect(encryptPayload(keys, new Uint8Array()).length).toBe(0);
-    expect(decryptPayload(keys, new Uint8Array()).length).toBe(0);
+    expect(decryptPayload(keys, new Uint8Array(), { allowEmpty: true }).length).toBe(0);
+    expect(() => decryptPayload(keys, new Uint8Array())).toThrow(/empty/);
     expect(() => decryptPayload(keys, new Uint8Array(47))).toThrow(/48/);
     const w = encryptPayload(keys, body);
     w[0]! ^= 1;

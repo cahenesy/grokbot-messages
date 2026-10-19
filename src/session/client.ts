@@ -6,7 +6,7 @@ import { randomUUID } from "node:crypto";
 import { decryptPayload, encryptPayload, type PayloadKeys } from "../crypto/payload.js";
 import { CONFIG_VERSION_2026_10_15, type AuthMessageInput, type DeviceIdentity } from "../protocol/auth.js";
 import {
-  Action, DEADLINE_24_H_MICROS, DEADLINE_5_MIN_MICROS, PHONE_RPC_MESSAGE_TYPE, decodeResponseEnvelopePb, encodeSendMessage, responsePayload,
+  Action, CLEAR_RESPONSE_ACTIONS, DEADLINE_24_H_MICROS, DEADLINE_5_MIN_MICROS, PHONE_RPC_MESSAGE_TYPE, decodeResponseEnvelopePb, encodeSendMessage, responsePayload,
   type RelayMessage, type ResponseEnvelope,
 } from "../protocol/messaging.js";
 import {
@@ -33,6 +33,9 @@ export interface ClientDeps {
   nowMs?: () => number;
   requestTimeoutMs?: number;
 }
+
+/** Actions whose reply may legitimately be empty (proto3 all-defaults), e.g. capabilities = false. */
+const EMPTY_REPLY_OK: ReadonlySet<number> = new Set([Action.GET_CAPABILITIES]);
 
 /** READ actions take the 24 h deadline, WRITEs 5 min (INFERRED working rule, A-008). */
 const READ_ACTIONS: ReadonlySet<number> = new Set([Action.LIST_CONVERSATIONS, Action.LIST_MESSAGES, Action.ACTIVATE_SESSION, Action.GET_CAPABILITIES]);
@@ -81,10 +84,15 @@ export class MessagesClient {
     return decodeListMessages(await this.call(Action.LIST_MESSAGES, encodeListMessages({ conversationId, cursor })));
   }
 
-  /** Sends one encrypted action and resolves with its decrypted response plaintext. */
+  /**
+   * Sends one encrypted action and resolves with its authenticated, decrypted response plaintext. The reply
+   * must carry the same action; empty (unauthenticated) replies are accepted only for actions listed in
+   * EMPTY_REPLY_OK, where an all-defaults message is a legitimate answer.
+   */
   async call(action: number, plaintext: Uint8Array): Promise<Uint8Array> {
     const env = await this.send(action, plaintext, { expectResponse: true });
-    return responsePayload(env!, (ct) => decryptPayload(this.d.keys, ct));
+    if (CLEAR_RESPONSE_ACTIONS.has(action)) throw new Error("clear actions are not sent through call()");
+    return responsePayload(env!, (ct) => decryptPayload(this.d.keys, ct, { allowEmpty: EMPTY_REPLY_OK.has(action) }), action);
   }
 
   private async send(action: number, plaintext: Uint8Array, o: { requestId?: string; expectResponse: boolean }): Promise<ResponseEnvelope | undefined> {
@@ -125,7 +133,8 @@ export class MessagesClient {
     if (env.action === PUSH_UPDATE_ACTION && env.requestId === this.sessionId) {
       let update: PushUpdate;
       try {
-        update = decodePushUpdate(responsePayload(env, (ct) => decryptPayload(this.d.keys, ct)));
+        // Push updates must be authenticated: require f8 ciphertext, no empty passthrough.
+        update = decodePushUpdate(responsePayload(env, (ct) => decryptPayload(this.d.keys, ct), PUSH_UPDATE_ACTION));
       } catch (e) {
         this.d.onEvent?.({ kind: "push-decode-failed", detail: (e as Error)?.name });
         return;
