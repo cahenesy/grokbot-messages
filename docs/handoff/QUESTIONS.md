@@ -482,3 +482,34 @@ _Protocol facts only, from the spec team's handoff, Google's public web client b
 - **Medium, stale/placeholder:** `StaleUpdateFilter` isn't wired in. The check runs per element (`conv_<id>`, `msg_<id>`; also `settings`, `qr_migration`) against envelope f3, strict `<`, LRU 1000 [B@1052571], [B@1054822]. The placeholder check runs after the stale check, so a skipped placeholder still advances the timestamp.
 - **Low, routing:** with no session, a 16 envelope is ignored unless it matches a pending request. With a session, it's a push if its ID is the session ID or a pending ID. Otherwise only the browser-active alert (f6 type 2, relay f7 not > 0) is handled; the rest is ignored [B@1069100–1072950], [B@1051909]. "invalid MAC" moves the client into an error state [B@1069835]. A non-empty envelope f11 is a QR-migration notice that stops processing unless the action is 1 [B@1069426], [B@1052142].
 - **Docs:** SPEC v0.5 §8 is updated on PR #18's branch (commit 90751f8).
+
+### Spec PR #18 merged — 2026-10-18 (~14:22 EDT; https://github.com/cahenesy/grokbot-messages/pull/18)
+
+- Owner merged #18 onto main as `5ba0ee7`. SPEC v0.5 (including A-016…A-020 docs) is now on main.
+
+### T-001 — Live test of main @ 5ba0ee7 (code cbf6d4a) — 2026-10-18 (~18:20 EDT; comment https://github.com/cahenesy/grokbot-messages/issues/16#issuecomment-6255881905)
+
+- **Build:** Node 22.23.3. npm ci, typecheck and build are clean. Tests: 22/22 files and 107/107 tests pass.
+- **MCP tools:** get_session_status ("Not paired."), get_pairing_status ("none"), start_pairing (error: RegisterPhoneRelay HTTP 403).
+- **Bug 1 (blocker):** relay calls send no Origin/Referer, so Google returns 403 API_KEY_HTTP_REFERRER_BLOCKED. With Origin/Referer https://messages.google.com the 403 clears (OBSERVED, diagnostic script only).
+- **Next (INFERRED):** with the origin set, the RegisterPhoneRelay body returns 400 INVALID_ARGUMENT (TachyonError). Asked the team to check against SPEC §4.1 step 1.
+- **Bug 2 (low):** status stays "none" after start_pairing fails. **Bug 3 (low):** an expired opener sees the "claimed" message because the cookie Max-Age equals the TTL.
+- **Page server:** single-use, 403 status without the cookie, expiry clears the QR, close refuses connections. No leaks in tool output or stderr. No session file written.
+- **US QR:** still unanswered, since Google never issued a pairing key.
+
+### T-002 / A-021 / review of the A-020 commits — 2026-10-19 (routine run, ~07:05 EDT)
+
+- **New since the last run:** implementer commits `c97c86d` (reply action must match the request; empty payloads only for 31), `9153b50` (A-020), `944a289` (read-only `list_conversations`/`list_messages`), `571a596` (DEVLOG attestation renewal); the A-020 ack on #10; new issue #19 (Phase 1–2 constant review, A-006 control 3).
+- **T-002** (comment https://github.com/cahenesy/grokbot-messages/issues/16#issuecomment-6265810339): fresh clone of `571a596`, Node 22.23.3, npm ci / typecheck / build clean, 110/110 tests. Diagnostic-only, no-scan RegisterPhoneRelay with Origin/Referer. Without auth-header f7: 400 INVALID_ARGUMENT, the same as T-001. **With f7 = ConfigVersion: 200, pairing key 61 bytes, token 112 bytes + TTL (VERIFIED-LIVE).** Nothing was scanned, no cookies were used, no session file was written, and no keys were printed. Google still issues QR pairing keys; whether a US phone can complete a scan is still UNVERIFIED.
+- **A-021** (comment https://github.com/cahenesy/grokbot-messages/issues/19#issuecomment-6265810519): CONSTANTS 🟡 items confirmed.
+  - **#1 ConfigVersion:** f3/f4/f5 come from `BUILD_VERSION` (YYYYMMDD) [B@973382], [B@784158]; f7 = 4 and f9 = 6. `MW_CONFIG[0]` = "20261015" today (OBSERVED; using it as the source is INFERRED). Suggested reading it at runtime, with the pinned value as fallback.
+  - **#2 key nesting:** f4 = {f6 = {f1 = 2, f2 = SPKI DER}} [B@1083605], [B@193620], [B@722929], [B@723205].
+  - **#5 browser details:** f5 = IS_IN_SATELLITE_MODE [B@894697]; f6 = 2 in satellite mode, 3 as a PWA [B@459310], else 1. The defaults f5 = false and f6 = 1 are correct.
+  - **Correction:** the `$Oa` path [B@734302] adds f1 request ID, f6 token and f7 ConfigVersion to a preset header, so the RegisterPhoneRelay header is {f1, f3 "Bugle", f7}. Refresh and Revoke follow the same path (INFERRED).
+  - Corrected the issue's claim that nothing past the page fetch has been exercised live (T-001 had already tested RegisterPhoneRelay).
+- **Review on #10** (comment https://github.com/cahenesy/grokbot-messages/issues/10#issuecomment-6265810687): A-020 matches; hygiene clean. Low notes:
+  - Gate push handling until the session is activated.
+  - Make an empty first page of `list_messages` an empty list, not "not found".
+  - Origin/Referer is still missing, so the list tools will 403 too.
+- **Docs:** SPEC §4.1 step 2 updated in a docs-only PR (v0.6).
+- **Waiting on:** the Origin/Referer + f7 fix, then T-003 through `start_pairing`; the owner's #16 answers (US scan and hosted HTTPS); and the BotGuard f39 live presence check.
