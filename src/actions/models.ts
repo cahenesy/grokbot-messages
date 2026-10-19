@@ -84,6 +84,16 @@ export function decodePart(f: RawField[]): MessagePart {
   }
 }
 
+/** True when the part has a content case (2–6) set (A-019/A-020 placeholder rule). */
+export const partHasContent = (p: MessagePart): boolean => p.kind !== "other" || p.oneofCase === 4;
+
+/**
+ * Render rule [B@1052849]: status 300, or type 3 with status ≠ 105, or every part has a content case.
+ * Otherwise the update is a placeholder and is skipped until a later one.
+ */
+export const isRenderable = (m: Message): boolean =>
+  m.statusCode === 300 || (m.type === 3 && m.statusCode !== 105) || m.parts.every(partHasContent);
+
 export interface Message {
   id: string;
   conversationId?: string;

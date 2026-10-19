@@ -40,6 +40,10 @@ export class RequestTracker<T> {
     return true;
   }
 
+  has(requestId: string): boolean {
+    return this.pending.has(requestId);
+  }
+
   /** Rejects one pending request (e.g. its send failed). */
   reject(requestId: string, e: Error): boolean {
     const p = this.pending.get(requestId);

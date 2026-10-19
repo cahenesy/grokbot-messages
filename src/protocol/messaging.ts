@@ -55,6 +55,8 @@ export interface ResponseEnvelope {
   plaintext?: Uint8Array;
   encrypted?: Uint8Array;
   preempted: boolean;
+  /** f11: when non-empty (and action ≠ 1), an encrypted QR-migration notice (A-020); may carry an email — never decoded into logs. */
+  migrationNotice?: Uint8Array;
 }
 
 export function decodeResponseEnvelopePb(b: Uint8Array): ResponseEnvelope {
@@ -68,6 +70,7 @@ export function decodeResponseEnvelopePb(b: Uint8Array): ResponseEnvelope {
     plaintext: getBytes(f, 5),
     encrypted: getBytes(f, 8),
     preempted: getVarint(f, 9) === 1n,
+    migrationNotice: getBytes(f, 11),
   };
 }
 

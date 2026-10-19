@@ -86,3 +86,16 @@ describe("push updates (A-019)", () => {
     expect(s.accept("msg_m1", 11n)).toBe(true);
   });
 });
+
+import { isRenderable, type Message } from "../src/actions/models.js";
+
+describe("placeholder rule (A-020)", () => {
+  const base: Message = { id: "m", outgoing: false, parts: [], special: false };
+  it("renders status 300, type 3 with status ≠ 105, or all parts with content", () => {
+    expect(isRenderable({ ...base, statusCode: 300, parts: [{ kind: "other" }] })).toBe(true);
+    expect(isRenderable({ ...base, type: 3, statusCode: 100, parts: [{ kind: "other" }] })).toBe(true);
+    expect(isRenderable({ ...base, type: 3, statusCode: 105, parts: [{ kind: "other" }] })).toBe(false);
+    expect(isRenderable({ ...base, statusCode: 100, parts: [{ kind: "text", text: "x" }] })).toBe(true);
+    expect(isRenderable({ ...base, statusCode: 100, parts: [{ kind: "text", text: "x" }, { kind: "other" }] })).toBe(false);
+  });
+});

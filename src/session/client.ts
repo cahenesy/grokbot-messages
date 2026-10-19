@@ -13,7 +13,8 @@ import {
   EMPTY_REQUEST, decodeCapabilities, decodeListConversations, decodeListMessages, encodeActivateSession, encodeListConversations, encodeListMessages,
   type Cursor,
 } from "../actions/requests.js";
-import { PUSH_UPDATE_ACTION, decodePushUpdate, type PushUpdate } from "../actions/updates.js";
+import { ALERT, PUSH_UPDATE_ACTION, StaleUpdateFilter, decodePushUpdate, type PushUpdate } from "../actions/updates.js";
+import { isRenderable } from "../actions/models.js";
 import type { StreamElement } from "../transport/receive.js";
 import { RequestTracker } from "./requests.js";
 import { InboundStream } from "./stream.js";
@@ -37,12 +38,17 @@ export interface ClientDeps {
 /** Actions whose reply may legitimately be empty (proto3 all-defaults), e.g. capabilities = false. */
 const EMPTY_REPLY_OK: ReadonlySet<number> = new Set([Action.GET_CAPABILITIES]);
 
-/** READ actions take the 24 h deadline, WRITEs 5 min (INFERRED working rule, A-008). */
-const READ_ACTIONS: ReadonlySet<number> = new Set([Action.LIST_CONVERSATIONS, Action.LIST_MESSAGES, Action.ACTIVATE_SESSION, Action.GET_CAPABILITIES]);
+/**
+ * Explicit 24 h deadline on 31, 1, 2 and 17 (A-020 [B@1053193], [B@1062006], [B@1058838], [B@1059576]).
+ * Others (16, writes) use the client default, UNVERIFIED; 5 min as seen live is the working assumption.
+ * Note for writes (action 3, later): the official client serializes WRITE requests one at a time [B@1047962].
+ */
+const DEADLINE_24H_ACTIONS: ReadonlySet<number> = new Set([Action.GET_CAPABILITIES, Action.LIST_CONVERSATIONS, Action.LIST_MESSAGES, Action.ACK]);
 
 export class MessagesClient {
   readonly sessionId = randomUUID();
   private readonly tracker = new RequestTracker<ResponseEnvelope>();
+  private readonly stale = new StaleUpdateFilter();
   private readonly abort = new AbortController();
   private firstListConversations = true;
   private streamDone?: Promise<void>;
@@ -112,7 +118,7 @@ export class MessagesClient {
           targets: mode.kind === "gaia" ? [mode.destination] : undefined,
           envelope: { requestId, action, encrypted: encryptPayload(this.d.keys, plaintext), sessionId: this.sessionId },
           qN,
-          deadlineMicros: READ_ACTIONS.has(action) ? DEADLINE_24_H_MICROS : DEADLINE_5_MIN_MICROS,
+          deadlineMicros: DEADLINE_24H_ACTIONS.has(action) ? DEADLINE_24_H_MICROS : DEADLINE_5_MIN_MICROS,
           envelopeEncoding: "pb-base64",
         }),
       );
@@ -130,19 +136,65 @@ export class MessagesClient {
     if (m.type !== PHONE_RPC_MESSAGE_TYPE || !m.envelope) return;
     const env = decodeResponseEnvelopePb(m.envelope);
     if (env.preempted) this.d.onEvent?.({ kind: "session-preempted" });
-    if (env.action === PUSH_UPDATE_ACTION && env.requestId === this.sessionId) {
-      let update: PushUpdate;
-      try {
-        // Push updates must be authenticated: require f8 ciphertext, no empty passthrough.
-        update = decodePushUpdate(responsePayload(env, (ct) => decryptPayload(this.d.keys, ct), PUSH_UPDATE_ACTION));
-      } catch (e) {
-        this.d.onEvent?.({ kind: "push-decode-failed", detail: (e as Error)?.name });
-        return;
-      }
-      if (update.kind === "ack-request") await this.send(Action.ACK, EMPTY_REQUEST, { expectResponse: false });
-      this.d.onPushUpdate?.(update);
+    // f11 QR-migration notice: stop processing this envelope unless it is action 1 (A-020 [B@1069426]).
+    if (env.migrationNotice?.length && env.action !== Action.LIST_CONVERSATIONS) {
+      this.d.onEvent?.({ kind: "qr-migration-notice" });
       return;
     }
-    if (!this.tracker.resolve(env.requestId, env)) this.d.onEvent?.({ kind: "unmatched-response", detail: env.action });
+    const isPush = env.action === PUSH_UPDATE_ACTION && (env.requestId === this.sessionId || this.tracker.has(env.requestId));
+    if (isPush) {
+      const update = this.decryptUpdate(env);
+      if (!update) return;
+      if (update.kind === "ack-request") await this.send(Action.ACK, EMPTY_REQUEST, { expectResponse: false });
+      const filtered = this.filterUpdate(update, env.timestampMicros);
+      if (filtered) this.d.onPushUpdate?.(filtered);
+      return;
+    }
+    if (this.tracker.has(env.requestId)) {
+      this.tracker.resolve(env.requestId, env);
+      return;
+    }
+    // Any other ID: only a "browser active" alert (type 2) with relay f7 not > 0 is handled (A-020 [B@1051909]).
+    if (env.action === PUSH_UPDATE_ACTION) {
+      const update = this.decryptUpdate(env);
+      if (update?.kind === "alert" && update.type === ALERT.BROWSER_ACTIVE && !((m.timeMicros ?? 0n) > 0n)) this.d.onEvent?.({ kind: "browser-active-elsewhere" });
+      return;
+    }
+    this.d.onEvent?.({ kind: "unmatched-response", detail: env.action });
+  }
+
+  /** Decrypts an action-16 envelope; push updates must be authenticated (no empty passthrough). */
+  private decryptUpdate(env: ResponseEnvelope): PushUpdate | undefined {
+    try {
+      return decodePushUpdate(responsePayload(env, (ct) => decryptPayload(this.d.keys, ct), PUSH_UPDATE_ACTION));
+    } catch (e) {
+      const mac = /HMAC/.test(String((e as Error)?.message));
+      // "invalid MAC" moves the official client into an error state (re-pair/re-key INFERRED) [B@1069835].
+      this.d.onEvent?.({ kind: mac ? "invalid-mac" : "push-decode-failed", detail: (e as Error)?.name });
+      return undefined;
+    }
+  }
+
+  /**
+   * Per-element stale check on envelope f3 (conv_<id>, msg_<id>, settings, qr_migration), then — for messages —
+   * the placeholder rule, which runs after the stale check so a skipped placeholder still advances the timestamp.
+   */
+  private filterUpdate(u: PushUpdate, ts: bigint | undefined): PushUpdate | undefined {
+    switch (u.kind) {
+      case "conversations": {
+        const conversations = u.conversations.filter((c) => this.stale.accept(`conv_${c.id}`, ts));
+        return conversations.length ? { kind: "conversations", conversations } : undefined;
+      }
+      case "messages": {
+        const messages = u.messages.filter((x) => this.stale.accept(`msg_${x.id}`, ts)).filter(isRenderable);
+        return messages.length ? { kind: "messages", messages } : undefined;
+      }
+      case "settings":
+        return this.stale.accept("settings", ts) ? u : undefined;
+      case "qr-migration":
+        return this.stale.accept("qr_migration", ts) ? u : undefined;
+      default:
+        return u;
+    }
   }
 }
