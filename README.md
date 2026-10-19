@@ -2,7 +2,7 @@
 
 A clean-room [MCP](https://modelcontextprotocol.io) connector for **Google Messages for Web**, intended for use as a Grok Bot plugin. Licensed **Apache-2.0**.
 
-> **Status: Phase 1 in progress — not usable yet.** Pairing is blocked on open spec questions (see [Spec gaps](#spec-gaps)). No send/read tools exist yet.
+> **Status: pre-release, not yet tested against a live phone.** Pairing and read-only listing are implemented per the spec; the first live run is pending. No send tools exist yet.
 
 > **Google ToS / account risk.** Automated access to Google Messages may conflict with Google's terms. Use only with your own account and phone. This project does not operate any shared or multi-tenant bridge.
 
@@ -47,11 +47,13 @@ Not part of the normal setup. Google-account (emoji) pairing would need your Goo
 
 Never commit real values. The session file is encrypted with AES-256-GCM using a scrypt-derived key.
 
-## Tools (Phase 1)
+## Tools
 
 - `get_session_status` — whether paired and when the token expires; never returns secrets.
 - `start_pairing` — returns `{status, link, expiresAt}` for the single-use pairing page.
 - `get_pairing_status` — `waiting`, `paired`, `expired`, `failed` or `none`.
+- `list_conversations` — recent conversations (25 per page; pass `cursor` for more). Read-only.
+- `list_messages` — messages in one conversation (50 per page; pass `cursor` for older). Read-only. Status codes are raw until their meanings are confirmed live.
 
 Sending messages will require explicit per-message user confirmation: a send is first prepared, which returns a one-time code bound to the exact text, and only a matching confirm call executes it (`src/mcp/confirm.ts`).
 

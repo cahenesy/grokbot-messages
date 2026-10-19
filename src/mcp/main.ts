@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// MCP stdio server. Phase 1 tools: session status and pairing (status/link only). No send tools yet.
+// MCP stdio server. Tools: session status, pairing (status/link only), read-only listing. No send tools yet.
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -15,6 +15,9 @@ import { callJspb } from "../transport/relay.js";
 import { callBinary } from "../transport/relay.js";
 import { receiveMessages } from "../transport/receive.js";
 import { apiKeyProvider } from "../transport/pageConfig.js";
+import { z } from "zod";
+import { MessagesClient } from "../session/client.js";
+import { messageText } from "../actions/models.js";
 
 const VERSION = "0.0.1";
 
@@ -29,6 +32,13 @@ function failure(e: unknown) {
 const optionalEnv = (name: string): string | undefined => optionalEnvValue(process.env, name);
 
 const server = new McpServer({ name: "grokbot-messages", version: VERSION });
+
+// ${GOOGLE_MESSAGES_API_KEY} overrides; otherwise read page-config A16fYe at runtime (A-003).
+const apiKey = apiKeyProvider(
+  () => optionalEnv("GOOGLE_MESSAGES_API_KEY"),
+  undefined,
+  () => optionalEnv("GOOGLE_MESSAGES_PAGE_USER_AGENT"),
+);
 
 server.registerTool(
   "get_session_status",
@@ -65,12 +75,6 @@ async function getPairing(): Promise<QrPairing> {
   });
   await page.start();
   const store = SessionStore.fromEnv();
-  // ${GOOGLE_MESSAGES_API_KEY} overrides; otherwise read page-config A16fYe at runtime (A-003).
-  const apiKey = apiKeyProvider(
-    () => optionalEnv("GOOGLE_MESSAGES_API_KEY"),
-    undefined,
-    () => optionalEnv("GOOGLE_MESSAGES_PAGE_USER_AGENT"),
-  );
   pairing = new QrPairing({
     page,
     userAgent: `grokbot-messages/${VERSION}`,
@@ -133,6 +137,98 @@ server.registerTool(
   async () => {
     try {
       return text(JSON.stringify({ status: pairing?.status() ?? "none" }));
+    } catch (e) {
+      return failure(e);
+    }
+  },
+);
+
+// Read-only client over the saved QR session (A-018/A-019). Started lazily on first use.
+let client: Promise<MessagesClient> | undefined;
+
+async function startClient(): Promise<MessagesClient> {
+  const s = await SessionStore.fromEnv().load();
+  if (!s?.phone || !s.token) throw new Error("Not paired. Run start_pairing first.");
+  const key = await apiKey();
+  const token = new Uint8Array(Buffer.from(s.token, "base64"));
+  const c = new MessagesClient({
+    mode: { kind: "qr", phone: s.phone }, // QR-mode destination = phone identity as received (INFERRED, Q-008)
+    keys: { aesKey: new Uint8Array(Buffer.from(s.aesKey, "base64")), hmacKey: new Uint8Array(Buffer.from(s.hmacKey, "base64")) },
+    token: () => token,
+    sendMessage: (body) => callJspb({ apiKey: key }, "Messaging", "SendMessage", body),
+    ack: (body) => callJspb({ apiKey: key }, "Messaging", "AckMessages", body),
+    openStream: (body, signal) => receiveMessages({ apiKey: key, body, signal }),
+    onEvent: (e) => console.error(`client: ${e.kind}${e.detail === undefined ? "" : ` ${e.detail}`}`), // kinds only, never contents
+  });
+  await c.start();
+  return c;
+}
+
+function getClient(): Promise<MessagesClient> {
+  client ??= startClient().catch((e) => {
+    client = undefined;
+    throw e;
+  });
+  return client;
+}
+
+const cursorIn = (c?: string) => (c ? new Uint8Array(Buffer.from(c, "base64url")) : undefined);
+const cursorOut = (c?: Uint8Array) => (c ? Buffer.from(c).toString("base64url") : undefined);
+
+server.registerTool(
+  "list_conversations",
+  {
+    description: "List recent Google Messages conversations (25 per page, newest first). Pass `cursor` from a previous result for the next page. Read-only.",
+    inputSchema: { cursor: z.string().optional() },
+  },
+  async ({ cursor }) => {
+    try {
+      const r = await (await getClient()).listConversations(cursorIn(cursor));
+      return text(
+        JSON.stringify({
+          conversations: r.conversations.map((c) => ({
+            id: c.id,
+            name: c.name,
+            lastActivity: c.lastActivityMs === undefined ? undefined : new Date(c.lastActivityMs).toISOString(),
+            unread: c.unread ? c.unread > 0 : undefined,
+            isGroup: c.isGroup,
+            participants: c.participants.filter((p) => !p.isSelf).map((p) => p.displayName ?? p.fullName ?? p.id),
+            preview: c.preview?.text,
+          })),
+          cursor: cursorOut(r.cursor),
+        }),
+      );
+    } catch (e) {
+      return failure(e);
+    }
+  },
+);
+
+server.registerTool(
+  "list_messages",
+  {
+    description: "List messages in one conversation (50 per page). Pass `cursor` from a previous result for older messages. Read-only.",
+    inputSchema: { conversation_id: z.string().min(1), cursor: z.string().optional() },
+  },
+  async ({ conversation_id, cursor }) => {
+    try {
+      const r = await (await getClient()).listMessages(conversation_id, cursorIn(cursor));
+      if (!r.messages.length && !cursor) return { ...text("Conversation not found."), isError: true };
+      return text(
+        JSON.stringify({
+          messages: r.messages.map((m) => ({
+            id: m.id,
+            time: m.timestampMs === undefined ? undefined : new Date(m.timestampMs).toISOString(),
+            outgoing: m.outgoing,
+            sender: m.senderId,
+            text: messageText(m),
+            media: m.parts.filter((p) => p.kind === "media").length || undefined,
+            statusCode: m.statusCode, // raw until names are confirmed live (A-019)
+            special: m.special || undefined,
+          })),
+          cursor: cursorOut(r.cursor),
+        }),
+      );
     } catch (e) {
       return failure(e);
     }
