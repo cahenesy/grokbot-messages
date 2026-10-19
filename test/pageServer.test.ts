@@ -105,3 +105,17 @@ describe("pairing page server", () => {
     expect(validatePublicBaseUrl("https://pair.example.com").protocol).toBe("https:");
   });
 });
+
+describe("expired opener (T-001 bug 3)", () => {
+  it("shows 'expired' after the opener's cookie lapses, not 'already opened'", async () => {
+    let now = 1000;
+    srv = new PairingPageServer({ now: () => now });
+    await srv.start();
+    const { link } = await srv.open(FAKE_QR, 5000);
+    await fetch(link); // claim
+    now = 7000;
+    const html = await (await fetch(link)).text(); // cookie dropped by the browser
+    expect(html).toContain("expired");
+    expect(html).not.toContain("already opened");
+  });
+});

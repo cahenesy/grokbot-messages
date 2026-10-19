@@ -2,7 +2,7 @@
 // Each stream element is an object where "1" carries a response and "2" a status/trailer.
 
 import { SpecGapError } from "../protocol/specGaps.js";
-import { RELAY_QR_BASE, RelayError, rpcUrl, type RelayOptions } from "./relay.js";
+import { RELAY_QR_BASE, WEB_CLIENT_ORIGIN_HEADERS, relayError, rpcUrl, type RelayOptions } from "./relay.js";
 import { JsonArrayStreamSplitter } from "./streamSplitter.js";
 
 export interface StreamElement {
@@ -36,15 +36,13 @@ export async function* receiveMessages(o: ReceiveOptions): AsyncGenerator<Stream
       "Content-Type": "application/json+protobuf",
       "X-User-Agent": "grpc-web-javascript/0.1",
       "X-Goog-Api-Key": o.apiKey,
+      ...WEB_CLIENT_ORIGIN_HEADERS,
       ...o.headers?.(),
     },
     body: JSON.stringify(o.body),
     signal: o.signal,
   });
-  if (!res.ok || !res.body) {
-    const grpc = res.headers.get("grpc-status");
-    throw new RelayError(res.status, grpc === null ? undefined : Number(grpc), `ReceiveMessages failed: HTTP ${res.status}`);
-  }
+  if (!res.ok || !res.body) throw await relayError(res, "Messaging/ReceiveMessages");
   const splitter = new JsonArrayStreamSplitter();
   const decoder = new TextDecoder();
   for await (const chunk of res.body) {

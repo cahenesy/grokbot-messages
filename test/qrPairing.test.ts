@@ -1,3 +1,4 @@
+import { CONFIG_VERSION_2026_10_15 } from "../src/protocol/auth.js";
 import { afterEach, describe, expect, it } from "vitest";
 import { PairingPageServer } from "../src/pairing/pageServer.js";
 import { QrPairing } from "../src/pairing/qrPairing.js";
@@ -32,6 +33,7 @@ describe("QrPairing", () => {
       waitForPaired: () => new Promise((r) => (release = r)),
       save: async (s) => void saved.push(s),
       userAgent: "grokbot-messages/test",
+      configVersion: async () => CONFIG_VERSION_2026_10_15,
     });
     const start = await q.start();
     expect(Object.keys(start).sort()).toEqual(["expiresAt", "link", "status"]);
@@ -56,11 +58,29 @@ describe("QrPairing", () => {
       waitForPaired: async () => { throw new Error("boom"); },
       save: async () => {},
       userAgent: "t",
+      configVersion: async () => CONFIG_VERSION_2026_10_15,
       onError: (e) => errors.push(e),
     });
     await q.start();
     await flush();
     expect(q.status()).toBe("failed");
     expect(errors).toHaveLength(1);
+  });
+});
+
+describe("start failure (T-001 bug 2)", () => {
+  it("reports failed when RegisterPhoneRelay fails before a link exists", async () => {
+    page = new PairingPageServer();
+    await page.start();
+    const q = new QrPairing({
+      page,
+      registerPhoneRelay: async () => { throw new Error("HTTP 403"); },
+      waitForPaired: () => new Promise(() => {}),
+      save: async () => {},
+      userAgent: "t",
+      configVersion: async () => CONFIG_VERSION_2026_10_15,
+    });
+    await expect(q.start()).rejects.toThrow(/403/);
+    expect(q.status()).toBe("failed");
   });
 });

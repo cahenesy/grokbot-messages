@@ -13,6 +13,7 @@ Status: ✅ spec/answer; 🟡 from implementer's bundle read, **pending spec-tea
 | QR relay base | `https://instantmessaging-pa.googleapis.com` | §2 (`solGAe`) | ✅ | `transport/relay.ts` |
 | RPC path prefix | `/$rpc/google.internal.communications.instantmessaging.v1.` | §2 | ✅ | `transport/relay.ts` |
 | `X-User-Agent` | `grpc-web-javascript/0.1` | §3, A-003 | ✅ | `transport/relay.ts`, `transport/receive.ts` |
+| Relay `Origin` / `Referer` | `https://messages.google.com` / `https://messages.google.com/` (referrer-restricted key) | T-001 (#16, VERIFIED-LIVE: 403 API_KEY_HTTP_REFERRER_BLOCKED without) | ✅ | `transport/relay.ts`, `transport/receive.ts` |
 | Content types | `application/x-protobuf` (Pairing), `application/json+protobuf` (Messaging/Registration) | §3, A-003 | ✅ | `transport/relay.ts` |
 | API key source | page-config const `A16fYe` in `window.MW_CONFIG` ([3][0] list, `[name, [null, null, str]]`), read at runtime; env override | A-003 follow-up (#3), [B@811680], [B@806731] | ✅ (VERIFIED-LIVE 2026-10-18 with the pinned UA) | `transport/pageConfig.ts` |
 | Page-fetch User-Agent | pinned current desktop Chrome UA (Linux); page fetch only; 200 without MW_CONFIG = failure | A-003 part 3 (#3), VERIFIED-LIVE table | ✅ | `transport/pageConfig.ts` |
@@ -24,7 +25,8 @@ Status: ✅ spec/answer; 🟡 from implementer's bundle read, **pending spec-tea
 |---|---|---|---|---|
 | AuthMessage fields | f1 requestId, f3 network, f6 token, f7 ConfigVersion | §0.1.3 | ✅ | `protocol/auth.ts` |
 | Network strings | `Bugle`, `GDitto`, `RCS` | §4.1 step 2, §0.1.1 | ✅ | `protocol/auth.ts` |
-| ConfigVersion fields | f3 year, f4 month, f5 day, f7 V1, f9 V2 | [B@973382] + A-001 values | 🟡 (#1) | `protocol/auth.ts` |
+| ConfigVersion fields | f3 year, f4 month, f5 day, f7 V1 = 4, f9 V2 = 6 | [B@973382], A-001, A-021 (#19) | ✅ | `protocol/auth.ts` |
+| ConfigVersion date source | `MW_CONFIG[0]` "YYYYMMDD" at runtime (INFERRED), fallback 2026/10/15 | A-021 [B@784158] | ✅ | `protocol/auth.ts`, `mcp/main.ts` |
 | ConfigVersion values | 2026/10/15/4/6 | A-001 (VERIFIED-LIVE) | ✅ | `protocol/auth.ts` |
 | Device identity | [type, sourceId, network]; type 16 = GDitto browser | §4.1 step 4 | ✅ | `protocol/auth.ts` |
 | Token submessage | f1 token, f2 TTL (µs) | §4.1 step 2, §4.3 | ✅ | `protocol/auth.ts`, `protocol/pairing.ts` |
@@ -33,9 +35,10 @@ Status: ✅ spec/answer; 🟡 from implementer's bundle read, **pending spec-tea
 
 | Constant | Value | Source | Status | Code |
 |---|---|---|---|---|
-| RegisterPhoneRelay | f1 auth header {f1 reqId, f3 network}, f3 browser details, f4 key data | §4.1 step 2 | ✅ | `protocol/pairing.ts` |
-| Key-data nesting | f4 = {f6 = {f1 = 2, f2 = SPKI DER}} | [B@1083605], [B@722929], [B@723205] | 🟡 (#2) | `protocol/pairing.ts` |
-| Browser details | f1 UA, f2 type (other = 1), f3 OS, f5 bool, f6 enum | §4.1 step 2, A-005, [B@1085900] | ✅ / 🟡 defaults f5 = false, f6 = 1 (#5) | `protocol/pairing.ts` |
+| RegisterPhoneRelay | f1 auth header {f1 reqId, f3 "Bugle", f7 ConfigVersion}, f3 browser details, f4 key data | §4.1 step 2, A-021 [B@734302], [B@1210190]; T-002 (VERIFIED-LIVE: 400 without f7, 200 with) | ✅ | `protocol/pairing.ts` |
+| Pairing auth header (other calls) | same, plus f6 token for authenticated calls (Refresh/Revoke; INFERRED, not tested live) | A-021 [B@734302] | ✅ | `protocol/auth.ts` |
+| Key-data nesting | f4 = {f6 = {f1 = 2, f2 = SPKI DER}} | [B@1083605], [B@722929], [B@723205], A-021; T-002 accepted | ✅ | `protocol/pairing.ts` |
+| Browser details | f1 UA, f2 type (other = 1), f3 OS, f5 = IS_IN_SATELLITE_MODE (false), f6 = 2 satellite / 3 PWA / 1 otherwise | §4.1 step 2, A-005, A-021 [B@1085900], [B@894697], [B@459310] | ✅ | `protocol/pairing.ts` |
 | SPKI DER | 91 bytes, prefix `3059301306072a8648ce3d0201`; OIDs 1.2.840.10045.2.1 / 1.2.840.10045.3.1.7 | §4.1 step 2, A-002, pub (RFC 5480) | ✅ | `crypto/deviceKey.ts` |
 | Response | f3 pairing key, f5 token | §4.1 step 2 | ✅ | `protocol/pairing.ts` |
 | RefreshPhoneRelay response | f2 new pairing key | §4.1 step 5 | ✅ | `protocol/pairing.ts` |

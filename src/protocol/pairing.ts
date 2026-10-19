@@ -1,6 +1,6 @@
 // QR (phone-relay) pairing messages, SPEC.md §4.1. Pairing service uses binary protobuf.
 
-import { authHeaderPb, deviceIdentityFromPb, type DeviceIdentity, type Token } from "./auth.js";
+import { authHeaderPb, deviceIdentityFromPb, type ConfigVersion, type DeviceIdentity, type Token } from "./auth.js";
 import { PbWriter, decode, getBytes, getMessage, getVarint, type RawField } from "./protobuf.js";
 
 /** Browser-type enum (§4.1 step 2; exact mapping INFERRED). The connector is not a browser, so "other". */
@@ -22,6 +22,7 @@ export interface BrowserDetails {
 export interface RegisterPhoneRelayInput {
   browser: BrowserDetails;
   spkiDer: Uint8Array;
+  configVersion: ConfigVersion;
   requestId?: string;
 }
 
@@ -44,7 +45,7 @@ export function encodeRegisterPhoneRelay(i: RegisterPhoneRelayInput): Uint8Array
   const browser = encodeBrowserDetails(i.browser);
   const key = new PbWriter().varint(1, 2).bytes(2, i.spkiDer);
   return new PbWriter()
-    .message(1, authHeaderPb("Bugle", i.requestId))
+    .message(1, authHeaderPb("Bugle", { requestId: i.requestId, configVersion: i.configVersion }))
     .message(3, browser)
     .message(4, new PbWriter().message(6, key))
     .finish();
@@ -142,8 +143,8 @@ export function encodeDeviceIdentityPb(d: DeviceIdentity): PbWriter {
 
 /**
  * RevokeRelayPairing (§4.1 step 6; A-017 [B@1083891]): f2 = the full browser identity message. f1 = binary auth
- * header {f1 request ID, f3 "Bugle", f6 token} (INFERRED from §4.3).
+ * header {f1 request ID, f3 "Bugle", f6 token, f7 ConfigVersion} (same common path [B@734302]; INFERRED, not tested live).
  */
-export function encodeRevokeRelayPairing(browser: DeviceIdentity, token: Uint8Array, requestId?: string): Uint8Array {
-  return new PbWriter().message(1, authHeaderPb("Bugle", requestId).bytes(6, token)).message(2, encodeDeviceIdentityPb(browser)).finish();
+export function encodeRevokeRelayPairing(browser: DeviceIdentity, token: Uint8Array, configVersion: ConfigVersion, requestId?: string): Uint8Array {
+  return new PbWriter().message(1, authHeaderPb("Bugle", { requestId, token, configVersion })).message(2, encodeDeviceIdentityPb(browser)).finish();
 }

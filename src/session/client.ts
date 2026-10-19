@@ -51,6 +51,8 @@ export class MessagesClient {
   private readonly stale = new StaleUpdateFilter();
   private readonly abort = new AbortController();
   private firstListConversations = true;
+  /** Set right after action 16 is sent; before that, action-16 envelopes are ignored unless pending (A-020 item 3). */
+  private sessionActive = false;
   private streamDone?: Promise<void>;
 
   constructor(private readonly d: ClientDeps) {}
@@ -73,6 +75,7 @@ export class MessagesClient {
       this.tracker.rejectAll(e as Error);
     });
     await this.send(Action.ACTIVATE_SESSION, encodeActivateSession(BigInt((this.d.nowMs ?? Date.now)())), { requestId: this.sessionId, expectResponse: false });
+    this.sessionActive = true;
     return decodeCapabilities(await this.call(Action.GET_CAPABILITIES, EMPTY_REQUEST));
   }
 
@@ -141,7 +144,8 @@ export class MessagesClient {
       this.d.onEvent?.({ kind: "qr-migration-notice" });
       return;
     }
-    const isPush = env.action === PUSH_UPDATE_ACTION && (env.requestId === this.sessionId || this.tracker.has(env.requestId));
+    const isPush =
+      env.action === PUSH_UPDATE_ACTION && ((this.sessionActive && env.requestId === this.sessionId) || this.tracker.has(env.requestId));
     if (isPush) {
       const update = this.decryptUpdate(env);
       if (!update) return;
@@ -154,6 +158,7 @@ export class MessagesClient {
       this.tracker.resolve(env.requestId, env);
       return;
     }
+    if (!this.sessionActive && env.action === PUSH_UPDATE_ACTION) return; // no session yet: ignore
     // Any other ID: only a "browser active" alert (type 2) with relay f7 not > 0 is handled (A-020 [B@1051909]).
     if (env.action === PUSH_UPDATE_ACTION) {
       const update = this.decryptUpdate(env);

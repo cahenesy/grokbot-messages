@@ -1,3 +1,4 @@
+import { CONFIG_VERSION_2026_10_15, configVersionFromBuildString } from "../src/protocol/auth.js";
 import { describe, expect, it } from "vitest";
 import { DeviceKey } from "../src/crypto/deviceKey.js";
 import { decodePairedContainer, decodeRegisterPhoneRelayResponse, encodeRegisterPhoneRelay, qrUrl } from "../src/protocol/pairing.js";
@@ -8,10 +9,13 @@ const browser = { userAgent: "ua", browserType: 1, os: "Linux" as const };
 describe("RegisterPhoneRelay", () => {
   it("lays out auth header, browser details and key data", () => {
     const spki = DeviceKey.generate().spki();
-    const f = decode(encodeRegisterPhoneRelay({ browser, spkiDer: spki, requestId: "rid" }));
+    const f = decode(encodeRegisterPhoneRelay({ browser, spkiDer: spki, requestId: "rid", configVersion: CONFIG_VERSION_2026_10_15 }));
     const auth = getMessage(f, 1)!;
     expect(getString(auth, 1)).toBe("rid");
     expect(getString(auth, 3)).toBe("Bugle");
+    // f7 ConfigVersion {f3 2026, f4 10, f5 15, f7 4, f9 6} (A-021; without it Google returns 400, T-002)
+    const cv = getMessage(auth, 7)!;
+    expect([3, 4, 5, 7, 9].map((n) => getVarint(cv, n))).toEqual([2026n, 10n, 15n, 4n, 6n]);
     const b = getMessage(f, 3)!;
     expect(getString(b, 3)).toBe("Linux");
     expect(getVarint(b, 5)).toBe(0n);
@@ -61,5 +65,13 @@ describe("paired container (route 14)", () => {
 
   it("returns undefined when f4 is absent", () => {
     expect(decodePairedContainer(new PbWriter().varint(1, 1).finish())).toBeUndefined();
+  });
+});
+
+describe("build date → ConfigVersion (A-021)", () => {
+  it("parses YYYYMMDD with V1 = 4, V2 = 6; rejects other shapes", () => {
+    expect(configVersionFromBuildString("20261015")).toEqual(CONFIG_VERSION_2026_10_15);
+    expect(configVersionFromBuildString("2026-10-15")).toBeUndefined();
+    expect(configVersionFromBuildString(undefined)).toBeUndefined();
   });
 });

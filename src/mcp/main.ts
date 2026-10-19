@@ -9,12 +9,12 @@ import { SessionStore, optionalEnvValue } from "../session/store.js";
 import { PairingPageServer } from "../pairing/pageServer.js";
 import { QrPairing } from "../pairing/qrPairing.js";
 import { encodeRevokeRelayPairing, pairedFromRelay, type PairedData } from "../protocol/pairing.js";
-import { CONFIG_VERSION_2026_10_15 } from "../protocol/auth.js";
+import { CONFIG_VERSION_2026_10_15, configVersionFromBuildString, type ConfigVersion } from "../protocol/auth.js";
 import { InboundStream } from "../session/stream.js";
 import { callJspb } from "../transport/relay.js";
 import { callBinary } from "../transport/relay.js";
 import { receiveMessages } from "../transport/receive.js";
-import { apiKeyProvider } from "../transport/pageConfig.js";
+import { apiKeyProvider, pageInfoProvider } from "../transport/pageConfig.js";
 import { z } from "zod";
 import { MessagesClient } from "../session/client.js";
 import { messageText } from "../actions/models.js";
@@ -34,11 +34,17 @@ const optionalEnv = (name: string): string | undefined => optionalEnvValue(proce
 const server = new McpServer({ name: "grokbot-messages", version: VERSION });
 
 // ${GOOGLE_MESSAGES_API_KEY} overrides; otherwise read page-config A16fYe at runtime (A-003).
-const apiKey = apiKeyProvider(
-  () => optionalEnv("GOOGLE_MESSAGES_API_KEY"),
-  undefined,
-  () => optionalEnv("GOOGLE_MESSAGES_PAGE_USER_AGENT"),
-);
+const page = pageInfoProvider(undefined, () => optionalEnv("GOOGLE_MESSAGES_PAGE_USER_AGENT"));
+const apiKey = apiKeyProvider(() => optionalEnv("GOOGLE_MESSAGES_API_KEY"), undefined, undefined, page);
+
+/** Page build date (MW_CONFIG[0]) when available, else the pinned 2026/10/15 values (A-021). */
+async function configVersion(): Promise<ConfigVersion> {
+  try {
+    return configVersionFromBuildString((await page()).buildString) ?? CONFIG_VERSION_2026_10_15;
+  } catch {
+    return CONFIG_VERSION_2026_10_15;
+  }
+}
 
 server.registerTool(
   "get_session_status",
@@ -78,11 +84,13 @@ async function getPairing(): Promise<QrPairing> {
   pairing = new QrPairing({
     page,
     userAgent: `grokbot-messages/${VERSION}`,
+    configVersion,
     registerPhoneRelay: async (body) => callBinary({ apiKey: await apiKey() }, "Pairing", "RegisterPhoneRelay", body),
     waitForPaired: async (token, signal) => {
       // QR mode: stream opened with the RegisterPhoneRelay token; route-14 payload in relay f12 (A-017).
       const key = await apiKey();
-      const auth = () => ({ network: "Bugle" as const, token, configVersion: CONFIG_VERSION_2026_10_15 });
+      const cv = await configVersion();
+      const auth = () => ({ network: "Bugle" as const, token, configVersion: cv });
       const ac = new AbortController();
       signal.addEventListener("abort", () => ac.abort(), { once: true });
       let found: PairedData | undefined;
@@ -106,7 +114,7 @@ async function getPairing(): Promise<QrPairing> {
       throw failure ?? new Error(signal.aborted ? "pairing timed out" : "stream closed before pairing");
     },
     revoke: async (p) => {
-      await callBinary({ apiKey: await apiKey() }, "Pairing", "RevokeRelayPairing", encodeRevokeRelayPairing(p.browser, p.token.token));
+      await callBinary({ apiKey: await apiKey() }, "Pairing", "RevokeRelayPairing", encodeRevokeRelayPairing(p.browser, p.token.token, await configVersion()));
     },
     onDiagnostic: (d) => console.error(`pairing: route 14 seen / f4 present / f4.4 length ${d.f4_4Length ?? "absent"}`),
     save: (s) => store.save(s),
@@ -213,7 +221,7 @@ server.registerTool(
   async ({ conversation_id, cursor }) => {
     try {
       const r = await (await getClient()).listMessages(conversation_id, cursorIn(cursor));
-      if (!r.messages.length && !cursor) return { ...text("Conversation not found."), isError: true };
+      // An empty first page can be a real conversation with no messages (spec-team note on #10).
       return text(
         JSON.stringify({
           messages: r.messages.map((m) => ({

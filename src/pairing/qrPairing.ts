@@ -6,6 +6,7 @@ import { DeviceKey } from "../crypto/deviceKey.js";
 import { generatePayloadKeys } from "../crypto/payload.js";
 import { BROWSER_TYPE_OTHER, decodeRegisterPhoneRelayResponse, encodeRegisterPhoneRelay, qrUrl, type PairedData } from "../protocol/pairing.js";
 import type { SessionData } from "../session/store.js";
+import type { ConfigVersion } from "../protocol/auth.js";
 import type { PairingPageServer, PairingStatus } from "./pageServer.js";
 
 /** Link lifetime. Must not exceed the server's QR expiry, whose field is still UNVERIFIED (Q-002). */
@@ -23,6 +24,8 @@ export interface QrPairingDeps {
   /** Diagnostics by kind/length only (A-017: "route 14 seen / f4 present / f4.4 length"). */
   onDiagnostic?: (d: { route14: true; f4Present: true; f4_4Length: number | undefined }) => void;
   userAgent: string;
+  /** AuthMessage ConfigVersion (page build date, falling back to the pinned value; A-021). */
+  configVersion: () => Promise<ConfigVersion>;
   onError?: (e: unknown) => void;
   now?: () => number;
 }
@@ -37,6 +40,8 @@ export class QrPairing {
   private abort?: AbortController;
   /** Increments per start(); an attempt may only save/finish while it is still the current generation. */
   private generation = 0;
+  /** Set when start() fails before a link exists, so status reports "failed" rather than "none" (T-001 bug 2). */
+  private startFailed = false;
 
   constructor(private readonly d: QrPairingDeps) {}
 
@@ -46,11 +51,22 @@ export class QrPairing {
     const isCurrent = () => gen === this.generation;
     const key = DeviceKey.generate();
     const payload = generatePayloadKeys();
-    const res = decodeRegisterPhoneRelayResponse(
-      await this.d.registerPhoneRelay(
-        encodeRegisterPhoneRelay({ browser: { userAgent: this.d.userAgent, browserType: BROWSER_TYPE_OTHER, os: "Linux" }, spkiDer: key.spki() }),
-      ),
-    );
+    let res: ReturnType<typeof decodeRegisterPhoneRelayResponse>;
+    try {
+      res = decodeRegisterPhoneRelayResponse(
+        await this.d.registerPhoneRelay(
+          encodeRegisterPhoneRelay({
+            browser: { userAgent: this.d.userAgent, browserType: BROWSER_TYPE_OTHER, os: "Linux" },
+            spkiDer: key.spki(),
+            configVersion: await this.d.configVersion(),
+          }),
+        ),
+      );
+    } catch (e) {
+      if (isCurrent()) this.startFailed = true;
+      throw e;
+    }
+    this.startFailed = false;
     const { link, expiresAt } = await this.d.page.open(qrUrl(res.pairingKey, payload.aesKey, payload.hmacKey), PAIRING_LINK_TTL_MS);
 
     const ac = new AbortController();
@@ -94,6 +110,7 @@ export class QrPairing {
   }
 
   status(): PairingStatus | undefined {
+    if (this.startFailed) return "failed";
     return this.d.page.status();
   }
 

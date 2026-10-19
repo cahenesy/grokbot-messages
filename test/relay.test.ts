@@ -20,7 +20,22 @@ describe("relay transport", () => {
     expect(seen!.url).toBe("https://instantmessaging-pa.clients6.google.com/$rpc/google.internal.communications.instantmessaging.v1.Messaging/AckMessages");
     expect(seen!.headers["X-User-Agent"]).toBe("grpc-web-javascript/0.1");
     expect(seen!.headers["X-Goog-AuthUser"]).toBe("0");
+    // referrer-restricted key (T-001): web-client origin on every relay call
+    expect(seen!.headers.Origin).toBe("https://messages.google.com");
+    expect(seen!.headers.Referer).toBe("https://messages.google.com/");
     expect(cookies).toEqual(["SIDCC=new; Path=/"]);
     expect(r).toEqual([[null, "1"]]);
+  });
+});
+
+import { RelayError } from "../src/transport/relay.js";
+
+describe("relay errors (T-001)", () => {
+  it("include the gRPC status and a sanitized reason", async () => {
+    const fetchImpl = (async () =>
+      new Response(JSON.stringify({ error: { status: "PERMISSION_DENIED", details: [{ reason: "API_KEY_HTTP_REFERRER_BLOCKED" }] } }), { status: 403 })) as unknown as typeof fetch;
+    const err = await callJspb({ apiKey: "k", fetchImpl }, "Messaging", "SendMessage", []).catch((e) => e);
+    expect(err).toBeInstanceOf(RelayError);
+    expect(err.message).toBe("Messaging/SendMessage failed: HTTP 403 (PERMISSION_DENIED API_KEY_HTTP_REFERRER_BLOCKED)");
   });
 });

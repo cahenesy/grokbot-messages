@@ -67,6 +67,16 @@ const STALE_UA_HINT =
  * MW_CONFIG (the unsupported-browser page), fails with an actionable error (A-003 part 3). Never logs values.
  */
 export async function fetchApiKey(fetchImpl: typeof fetch = fetch, userAgent: string = PAGE_FETCH_USER_AGENT): Promise<string> {
+  return (await fetchPageInfo(fetchImpl, userAgent)).apiKey;
+}
+
+export interface PageInfo {
+  apiKey: string;
+  /** MW_CONFIG[0], an 8-digit YYYYMMDD build string (INFERRED source of BUILD_VERSION, A-021). */
+  buildString?: string;
+}
+
+export async function fetchPageInfo(fetchImpl: typeof fetch = fetch, userAgent: string = PAGE_FETCH_USER_AGENT): Promise<PageInfo> {
   let res: Response;
   try {
     res = await fetchImpl(MESSAGES_WEB_PAGE, { headers: { "User-Agent": userAgent, Accept: "text/html" }, redirect: "follow" });
@@ -81,20 +91,23 @@ export async function fetchApiKey(fetchImpl: typeof fetch = fetch, userAgent: st
     throw new PageConfigError(`Messages web page returned no usable config: ${STALE_UA_HINT}`);
   }
   const key = getConst(config, API_KEY_CONST);
-  if (typeof key === "string" && key) return key;
-  throw new SpecGapError("Q-003"); // config present but the const moved or was renamed
+  if (typeof key !== "string" || !key) throw new SpecGapError("Q-003"); // config present but the const moved or was renamed
+  return { apiKey: key, buildString: typeof config[0] === "string" ? config[0] : undefined };
 }
 
-/** Env override first, then a cached runtime read (one attempt per call; no retry loop). */
-export function apiKeyProvider(override: () => string | undefined, fetchImpl?: typeof fetch, userAgent?: () => string | undefined): () => Promise<string> {
-  let cached: Promise<string> | undefined;
-  return async () => {
-    const o = override();
-    if (o) return o;
-    cached ??= fetchApiKey(fetchImpl, userAgent?.() ?? PAGE_FETCH_USER_AGENT).catch((e) => {
+/** Cached runtime page read (one attempt per call; no retry loop). */
+export function pageInfoProvider(fetchImpl?: typeof fetch, userAgent?: () => string | undefined): () => Promise<PageInfo> {
+  let cached: Promise<PageInfo> | undefined;
+  return () => {
+    cached ??= fetchPageInfo(fetchImpl, userAgent?.() ?? PAGE_FETCH_USER_AGENT).catch((e) => {
       cached = undefined;
       throw e;
     });
     return cached;
   };
+}
+
+/** Env override first, then the page's A16fYe. */
+export function apiKeyProvider(override: () => string | undefined, fetchImpl?: typeof fetch, userAgent?: () => string | undefined, page = pageInfoProvider(fetchImpl, userAgent)): () => Promise<string> {
+  return async () => override() ?? (await page()).apiKey;
 }

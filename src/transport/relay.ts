@@ -6,6 +6,12 @@ export const RELAY_QR_BASE = "https://instantmessaging-pa.googleapis.com"; // fl
 export const RELAY_GAIA_BASE = "https://instantmessaging-pa.clients6.google.com"; // flag tkZp9e (§2, §0.1 item 1)
 const RPC_PREFIX = "/$rpc/google.internal.communications.instantmessaging.v1.";
 
+/**
+ * The relay API key is referrer-restricted: without these Google returns 403 API_KEY_HTTP_REFERRER_BLOCKED
+ * (T-001 on #16, VERIFIED-LIVE). Same origin as the Gaia hash (A-012).
+ */
+export const WEB_CLIENT_ORIGIN_HEADERS = { Origin: "https://messages.google.com", Referer: "https://messages.google.com/" } as const;
+
 export type Service = "Pairing" | "Messaging" | "Registration";
 
 export class RelayError extends Error {
@@ -26,6 +32,31 @@ export interface RelayOptions {
   onSetCookie?: (lines: string[]) => void;
 }
 
+/**
+ * Builds a RelayError with the gRPC status and a short, sanitized reason (T-001 asked for the error kind/code).
+ * Only the `grpc-message` header or a JSON error's `status`/`reason` are used; never request data.
+ */
+export async function relayError(res: Response, what: string): Promise<RelayError> {
+  const grpc = res.headers.get("grpc-status");
+  let reason = res.headers.get("grpc-message") ?? "";
+  if (!reason) {
+    try {
+      const j = JSON.parse(await res.text()) as { error?: { status?: string; details?: Array<{ reason?: string }> } };
+      reason = [j.error?.status, j.error?.details?.find((d) => d.reason)?.reason].filter(Boolean).join(" ");
+    } catch {
+      // non-JSON body: status code only
+    }
+  }
+  let decoded = reason;
+  try {
+    decoded = decodeURIComponent(reason);
+  } catch {
+    // keep the raw header text
+  }
+  const safe = decoded.replace(/[^\w .:/-]/g, "").slice(0, 120);
+  return new RelayError(res.status, grpc === null ? undefined : Number(grpc), `${what} failed: HTTP ${res.status}${safe ? ` (${safe})` : ""}`);
+}
+
 export function rpcUrl(base: string, service: Service, method: string): string {
   return `${base}${RPC_PREFIX}${service}/${method}`;
 }
@@ -38,16 +69,14 @@ async function call(o: RelayOptions, service: Service, method: string, body: Bod
       "Content-Type": contentType,
       "X-User-Agent": "grpc-web-javascript/0.1",
       "X-Goog-Api-Key": o.apiKey,
+      ...WEB_CLIENT_ORIGIN_HEADERS,
       ...o.headers?.(),
     },
     body,
   });
   const setCookie = res.headers.getSetCookie?.() ?? [];
   if (setCookie.length) o.onSetCookie?.(setCookie);
-  if (!res.ok) {
-    const grpc = res.headers.get("grpc-status");
-    throw new RelayError(res.status, grpc === null ? undefined : Number(grpc), `${service}/${method} failed: HTTP ${res.status}`);
-  }
+  if (!res.ok) throw await relayError(res, `${service}/${method}`);
   return res;
 }
 

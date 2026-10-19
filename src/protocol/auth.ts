@@ -69,9 +69,26 @@ export function authMessageJspb(a: AuthMessageInput): Jspb {
   });
 }
 
-/** Binary auth header used by the Pairing service: f1 requestId, f3 network (§4.1 step 2). */
-export function authHeaderPb(network: Network, requestId: string = randomUUID()): PbWriter {
-  return new PbWriter().string(1, requestId).string(3, network);
+/** Binary ConfigVersion: f3 year, f4 month, f5 day, f7 V1, f9 V2 (A-021 [B@973382]). */
+export function configVersionPb(v: ConfigVersion): PbWriter {
+  return new PbWriter().varint(3, v.year).varint(4, v.month).varint(5, v.day).varint(7, v.v1).varint(9, v.v2);
+}
+
+/**
+ * Binary auth header for the Pairing service: f1 request ID, f3 network, f6 token (authenticated calls),
+ * f7 ConfigVersion. The client's common request path fills f1/f6/f7 [B@734302]; without f7 RegisterPhoneRelay
+ * returns 400 INVALID_ARGUMENT (T-002 on #16, VERIFIED-LIVE).
+ */
+export function authHeaderPb(network: Network, o: { requestId?: string; token?: Uint8Array; configVersion: ConfigVersion }): PbWriter {
+  const w = new PbWriter().string(1, o.requestId ?? randomUUID()).string(3, network);
+  if (o.token) w.bytes(6, o.token);
+  return w.message(7, configVersionPb(o.configVersion));
+}
+
+/** Parses an 8-digit YYYYMMDD build string (MW_CONFIG[0]) into a ConfigVersion with the client constants V1 = 4, V2 = 6 (A-021 [B@784158]). */
+export function configVersionFromBuildString(s: unknown): ConfigVersion | undefined {
+  if (typeof s !== "string" || !/^\d{8}$/.test(s)) return undefined;
+  return { year: Number(s.slice(0, 4)), month: Number(s.slice(4, 6)), day: Number(s.slice(6, 8)), v1: 4, v2: 6 };
 }
 
 export interface Token {

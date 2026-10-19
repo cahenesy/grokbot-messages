@@ -1,3 +1,4 @@
+import { CONFIG_VERSION_2026_10_15 } from "../src/protocol/auth.js";
 import { afterEach, describe, expect, it } from "vitest";
 import { PbWriter, decode, getMessage, getString, getVarint } from "../src/protocol/protobuf.js";
 import { PairingEventError, encodeRevokeRelayPairing, pairedFromRelay, type PairedData } from "../src/protocol/pairing.js";
@@ -31,11 +32,12 @@ describe("route-14 pairing event (A-017)", () => {
   });
 
   it("RevokeRelayPairing carries the full browser identity in f2", () => {
-    const f = decode(encodeRevokeRelayPairing({ type: 16, sourceId: "browser", network: "Bugle" }, new Uint8Array([1]), "rid"));
+    const f = decode(encodeRevokeRelayPairing({ type: 16, sourceId: "browser", network: "Bugle" }, new Uint8Array([1]), CONFIG_VERSION_2026_10_15, "rid"));
     const ident = getMessage(f, 2)!;
     expect(getVarint(ident, 1)).toBe(16n);
     expect(getString(ident, 2)).toBe("browser");
     expect(getString(getMessage(f, 1)!, 3)).toBe("Bugle");
+    expect(getMessage(getMessage(f, 1)!, 7)).toBeDefined(); // f7 ConfigVersion
   });
 });
 
@@ -96,6 +98,7 @@ describe("late pairing is revoked (A-017)", () => {
       save: async (s) => void saved.push(s),
       revoke: async (p) => void revoked.push(p),
       userAgent: "t",
+      configVersion: async () => CONFIG_VERSION_2026_10_15,
     });
     await q.start();
     now = 10 * 60_000; // past the link lifetime
@@ -121,6 +124,7 @@ describe("superseded attempts (security review)", () => {
       save: async (s) => void saved.push(s),
       revoke: async (p) => void revoked.push(p),
       userAgent: "t",
+      configVersion: async () => CONFIG_VERSION_2026_10_15,
     });
     await q.start(); // attempt A
     await q.start(); // attempt B supersedes A

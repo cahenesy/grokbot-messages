@@ -203,7 +203,8 @@ export class PairingPageServer {
     } else if (!isOpener) {
       if (isStatus) return send(403, "application/json", JSON.stringify({ status: "unavailable" }));
       const n = randomBytes(16).toString("base64");
-      return html(page(a.status, undefined, n, CLAIMED), {}, n);
+      // Once the attempt is final, show its status (e.g. "expired") rather than "already opened" (T-001 bug 3).
+      return html(page(a.status, undefined, n, a.status === "waiting" ? CLAIMED : undefined), {}, n);
     }
 
     if (isStatus) return send(200, "application/json", JSON.stringify({ status: a.status }));
