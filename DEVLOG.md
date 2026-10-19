@@ -54,3 +54,9 @@ Required by clean-room rule 5 (`docs/handoff/README.md`). This log names every U
 ## 2026-10-19 — Phase 1–2 attestation renewal
 
 - **Clean-room attestation (Phases 1–2), 2026-10-19:** No source on the do-not-open list in `docs/handoff/README.md` rule 1 has been opened, searched for, or retrieved in the course of this project.
+
+## 2026-10-19 — spec-team live results and review
+
+- T-003 (#16): `start_pairing` through MCP @ ace88ff → Google issued a QR pairing key; pairing page served the QR as SVG; leak checks clean (VERIFIED-LIVE, spec team, no scan).
+- A-021 (#19): Phase 1–2 constant review **passed** at ace88ff.
+- Remaining for end-to-end: an actual phone scan by the owner (US QR availability), then the first read-only session.
